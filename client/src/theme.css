@@ -1,0 +1,99 @@
+@import "./assets/fonts/fonts.css";
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+
+@theme {
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 3.25rem;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #faf6ee;
+  --surface: #ffffff;
+  --text: #17352a;
+  --dim: #5f7268;
+  --border: #e3ddcb;
+  --accent: #0b3d2e;
+  --gold: #c9a227;
+  --sage: #e7efe9;
+  --night: #0e1b2e;
+  --radius: 14px;
+  --space-surface: var(--surface);
+  --space-surface-alt: var(--sage);
+  --space-muted: var(--dim);
+  --space-border: var(--border);
+  --space-accent: var(--accent);
+  font-family: "Noto Serif Bengali", "Hind Siliguri", "Noto Sans Bengali", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a1512;
+    --surface: #12241e;
+    --text: #eef5f0;
+    --dim: #9db4a8;
+    --border: #24443a;
+    --accent: #d9b64a;
+    --sage: #173028;
+  }
+}
+
+/* Phone tap targets: at least 32px tall. */
+@layer base {
+  button, [role="button"], select, summary, input:not([type="checkbox"], [type="radio"]) {
+    min-height: 2rem;
+  }
+  body {
+    font-family: "Noto Serif Bengali", "Hind Siliguri", "Noto Sans Bengali", system-ui, sans-serif;
+    /* Bengali conjuncts (যুক্তাক্ষর) and vowel signs need a touch more
+       line room and letter room than Latin defaults, or the matras crowd
+       together and letters blur into each other at small sizes. */
+    letter-spacing: 0.012em;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Display Bengali — headings, dates, titles. Same serif letterforms as
+   the body stack, pinned explicitly so these lines never fall back to a
+   device font even if a future stack edit reorders the families. */
+.font-display-bn {
+  font-family: "Noto Serif Bengali", "Hind Siliguri", "Noto Sans Bengali", serif;
+  letter-spacing: 0.015em;
+}
+
+/* Home hero: deep-green gradient band (readable in both colour schemes)
+   with a subtle gold dot pattern, like mosque tilework. */
+.hero-band {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(201, 162, 39, 0.16) 1.1px, transparent 0) 0 0 / 22px 22px,
+    linear-gradient(160deg, #0d4a35 0%, #0b3d2e 55%, #07271d 100%);
+}
+.pattern-band {
+  background-color: #0b3d2e;
+}
+
+/* Home poster band: a real mosque photo sits under a dark green wash
+   (set inline in App.tsx); this shadow keeps every line of text crisp
+   and poster-clear over the bright parts of the photo. */
+.poster-band {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 0, 0, 0.4);
+}
