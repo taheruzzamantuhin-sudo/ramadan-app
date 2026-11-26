@@ -46,8 +46,16 @@ jobs:
           java-version: "17"
 
       - name: Install dependencies
-        run: bun install
-
+        run: |
+          # The space SDK ships as a local file: dependency pointing at a
+          # path that only exists on the build machine where the app was
+          # authored. A vendored copy (space-sdk.tgz) sits at the repo root
+          # for CI — point package.json at it, and drop the lockfile (its
+          # format is newer than the runner's Bun, and it records the old
+          # absolute path anyway).
+          sed -i 's|file:/opt/hatch/skills/spaces/ts-runtime/dist/space-sdk.tgz|file:./space-sdk.tgz|' package.json
+          rm -f bun.lock
+          bun install
       - name: Build the web bundle
         run: bun run build:client
 
