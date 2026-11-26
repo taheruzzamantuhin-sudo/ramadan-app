@@ -1,0 +1,15 @@
+{
+  "runtime": "typescript",
+  "platformVersion": 31,
+  "entry": "client/dist/index.html",
+  "name": "রমজান অ্যাপ",
+  "slug": "rmjaan-ayaap",
+  "managedCronJobs": [
+    {
+      "id": "ramadan-fitra-rate-daily-check",
+      "action": "refreshFitraRates",
+      "schedule": "daily ~09:00 Asia/Dhaka",
+      "purpose": "Check daily for the Islamic Foundation's newly announced Fitra rate for the upcoming Ramadan; a verified announcement updates the stored rate automatically via saveFitraRates."
+    }
+  ]
+}
