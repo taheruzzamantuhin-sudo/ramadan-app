@@ -13,7 +13,7 @@
     "@capacitor/android": "^8.6.3",
     "@capacitor/core": "^8.6.3",
     "@capacitor/local-notifications": "^8.3.1",
-    "@hatch/space-sdk": "file:/opt/hatch/skills/spaces/ts-runtime/dist/space-sdk.tgz",
+    "@hatch/space-sdk": "file:./space-sdk.tgz",
     "@tanstack/react-query": "5.100.10",
     "drizzle-orm": "0.45.2",
     "react": "19.2.5",
