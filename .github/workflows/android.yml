@@ -63,6 +63,8 @@ jobs:
         # web build fails with a permission error. Restore +x on them.
         run: find node_modules -name "tailwindcss-oxide*.node" -exec chmod +x {} +
       - name: Build the web bundle
+        env:
+          HATCH_SPACES_BUILD_DRIVER: "1"
         run: bun run build:client
 
       - name: Add the Android project (first run only)
