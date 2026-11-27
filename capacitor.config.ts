@@ -12,7 +12,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // webDir at the folder the build produced.
 const config: CapacitorConfig = {
   appId: "com.tuhin.ramadanapp",
-  appName: "রমজান অ্যাপ",
+  appName: "আমলখাতা",
   webDir: "client/dist",
   plugins: {
     LocalNotifications: {

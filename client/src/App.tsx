@@ -1,4 +1,4 @@
-// রমজান অ্যাপ — সম্পূর্ণ বাংলা রমজান সহায়িকা।
+// আমলখাতা — সম্পূর্ণ বাংলা রমজান সহায়িকা।
 // জেলা অনুযায়ী সেহরি-ইফতার ও নামাজের সময় (ইসলামিক ফাউন্ডেশনের ১৮° পদ্ধতি),
 // লাইভ কাউন্টডাউন, সেহরির অ্যালার্ম, রমজানের ক্যালেন্ডার, রোজা ট্র্যাকার,
 // কোরআন খতম প্ল্যান, তসবিহ, দোয়া-হাদিস, যাকাত-ফিতরা ক্যালকুলেটর এবং
@@ -258,7 +258,7 @@ function AuthScreen({ onAuthed }: { onAuthed: (token: string) => void }) {
         alt="সবুজ আকাশে সোনালি অর্ধচন্দ্র, তারা আর মসজিদের ছায়া — রমজানের চিত্র"
         className="mt-4 h-44 w-full rounded-[var(--radius)] object-cover shadow-[0_4px_18px_rgba(11,61,46,0.25)] ring-1 ring-[var(--gold)]/40"
       />
-      <h1 className="font-display-bn mt-4 text-center text-3xl font-bold text-[var(--text)]">রমজান অ্যাপ</h1>
+      <h1 className="font-display-bn mt-4 text-center text-3xl font-bold text-[var(--text)]">আমলখাতা</h1>
       <div aria-hidden="true" className="mx-auto mt-2 flex items-center justify-center gap-1.5">
         <span className="h-px w-10 bg-[var(--gold)]" />
         <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--gold)"><path d="M20.6 14.2A8.8 8.8 0 0 1 9.8 3.4a.6.6 0 0 0-.8-.8 10.5 10.5 0 1 0 12.4 12.4.6.6 0 0 0-.8-.8Z" /></svg>
@@ -1460,7 +1460,7 @@ function NotificationCard({
         )}
         {nativePerm === "denied" && (
           <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">
-            নোটিফিকেশনের অনুমতি বন্ধ করা আছে। চালু করতে ফোনের Settings → Apps → রমজান অ্যাপ → Notifications থেকে Allow করুন।
+            নোটিফিকেশনের অনুমতি বন্ধ করা আছে। চালু করতে ফোনের Settings → Apps → আমলখাতা → Notifications থেকে Allow করুন।
           </p>
         )}
         {nativePerm === "granted" && (
