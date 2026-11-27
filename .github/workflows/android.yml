@@ -56,6 +56,12 @@ jobs:
           sed -i 's|file:/opt/hatch/skills/spaces/ts-runtime/dist/space-sdk.tgz|file:./space-sdk.tgz|' package.json
           rm -f bun.lock
           bun install
+          - name: Make the Tailwind Oxide bundler binary executable
+            # bun-plugin-tailwind's published tarball ships its native
+            # tailwindcss-oxide *.node binaries without the execute bit, so
+            # Bun cannot load the bundler's Tailwind plugin in CI and the
+            # web build fails with a permission error. Restore +x on them.
+            run: find node_modules -name "tailwindcss-oxide*.node" -exec chmod +x {} +
       - name: Build the web bundle
         run: bun run build:client
 
