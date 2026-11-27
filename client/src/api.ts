@@ -9,7 +9,12 @@
 import type { Actions } from "../../server/src/actions";
 import { createActionClient } from "@hatch/space-sdk/client";
 
-export const api = createActionClient<typeof Actions>();
+// Standalone build: the app no longer runs inside the Muse space runtime,
+// so action calls go to the app's own public backend API (same {action, args}
+// protocol and response shapes as the space actions endpoint).
+export const api = createActionClient<typeof Actions>({
+  endpoint: "https://ramadan-api.pages.dev/actions",
+});
 
 // Re-exported for convenience so client code can do
 //
