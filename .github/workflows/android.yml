@@ -88,7 +88,7 @@ jobs:
           if [ -f scripts/make_icon.py ]; then
             python3 -m pip install --quiet pillow
             python3 scripts/make_icon.py android/app/src/main/res
-        fi
+          fi
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug
