@@ -216,7 +216,27 @@ function normalizePhoneInput(raw: string): string {
 
 // ---------- auth screen ----------
 
-function AuthScreen({ onAuthed }: { onAuthed: (token: string) => void }) {
+/** Amal state the standalone API embeds in login/register/me responses. */
+export interface AuthStateSeed {
+  roza: { day: number; status: "kept" | "qaza" }[];
+  khatamDays: number[];
+  tasbih: { dhikr: string; count: number }[];
+}
+
+type MeUser = NonNullable<ApiResponse<typeof api, "me">["user"]>;
+
+export interface AuthResult {
+  token: string;
+  user: MeUser;
+  state?: AuthStateSeed;
+  stateYear?: number;
+}
+
+function AuthScreen({
+  onAuthed,
+}: {
+  onAuthed: (a: AuthResult) => void;
+}) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -226,12 +246,12 @@ function AuthScreen({ onAuthed }: { onAuthed: (token: string) => void }) {
 
   const register = useMutation({
     mutationFn: async (p: string) => await api.register({ name, phone: p, password, districtEn }),
-    onSuccess: (d) => onAuthed(d.token),
+    onSuccess: (d) => onAuthed(d as unknown as AuthResult),
     onError: (e) => setError(e instanceof Error ? e.message : "অ্যাকাউন্ট তৈরি হয়নি"),
   });
   const login = useMutation({
     mutationFn: async (p: string) => await api.login({ phone: p, password }),
-    onSuccess: (d) => onAuthed(d.token),
+    onSuccess: (d) => onAuthed(d as unknown as AuthResult),
     onError: (e) => setError(e instanceof Error ? e.message : "লগইন হয়নি"),
   });
 
@@ -811,6 +831,8 @@ function AmalTab({
   const stateQ = useQuery({
     queryKey: ["mystate", token, hijriYear],
     queryFn: () => api.getMyState({ token, hijriYear }),
+    // Seeded from the login/me response right after auth — no instant refetch.
+    staleTime: 60_000,
     initialData: () =>
       readCache<ApiResponse<typeof api, "getMyState">>(`mystate|${token}|${hijriYear}`),
   });
@@ -1076,6 +1098,8 @@ function KhatamTab({
   const stateQ = useQuery({
     queryKey: ["mystate", token, hijriYear],
     queryFn: () => api.getMyState({ token, hijriYear }),
+    // Seeded from the login/me response right after auth — no instant refetch.
+    staleTime: 60_000,
     initialData: () =>
       readCache<ApiResponse<typeof api, "getMyState">>(`mystate|${token}|${hijriYear}`),
   });
@@ -1771,6 +1795,14 @@ export function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem("ramadan-app-token") ?? "");
   const [tab, setTab] = useState<TabId>("home");
   const [quranPara, setQuranPara] = useState<number | null>(null);
+  // When the last fresh login/register happened — used to skip the
+  // redundant heartbeat + me refetch right after it.
+  const freshAuthAtRef = useRef(0);
+  // The Quran tab stays mounted once first opened so a recitation in
+  // progress (and the reading/focus position) survives switching to
+  // other tabs and back.
+  const [quranMounted, setQuranMounted] = useState(false);
+  if (tab === "quran" && !quranMounted) setQuranMounted(true);
   const openParaInQuran = (para: number) => {
     setQuranPara(para);
     setTab("quran");
@@ -1805,12 +1837,29 @@ export function App() {
     queryKey: ["me", token],
     queryFn: () => api.me({ token }),
     enabled: token.length > 0,
+    // Right after login/register the response already carried the profile
+    // (seeded by handleAuthed) — don't refetch it immediately.
+    staleTime: 60_000,
     // Offline: the last known profile opens the app; online it refreshes.
     initialData: () =>
       token ? readCache<ApiResponse<typeof api, "me">>(`me|${token}`) : undefined,
   });
   usePersistCache(token ? `me|${token}` : null, meQ.data);
   const user = meQ.data?.user ?? null;
+
+  // The API also embeds the amal state in the `me` response — seed the
+  // mystate query + on-device cache from it so the amal/khatam tabs don't
+  // need their own round trip right after app open either.
+  const meSeed = meQ.data as
+    | (ApiResponse<typeof api, "me"> & { state?: AuthStateSeed; stateYear?: number })
+    | undefined;
+  useEffect(() => {
+    if (meSeed?.state && meSeed.stateYear && token) {
+      queryClient.setQueryData(["mystate", token, meSeed.stateYear], meSeed.state);
+      writeCache(`mystate|${token}|${meSeed.stateYear}`, meSeed.state);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meQ.data, token]);
 
   useEffect(() => {
     if (token && meQ.data && meQ.data.user === null) {
@@ -1866,7 +1915,9 @@ export function App() {
     mutationFn: async () => await api.heartbeat({ token }),
   });
   useEffect(() => {
-    if (user) heartbeat.mutate();
+    // A fresh login/register already stamped lastActiveAt on the server —
+    // skip the heartbeat round trip in that case.
+    if (user && Date.now() - freshAuthAtRef.current > 60_000) heartbeat.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -1973,10 +2024,22 @@ export function App() {
     });
   }, [user, today, tomorrow, calendarDays, hadithNotif]);
 
-  function handleAuthed(t: string) {
-    localStorage.setItem("ramadan-app-token", t);
-    setToken(t);
-    queryClient.invalidateQueries();
+  function handleAuthed(a: AuthResult) {
+    freshAuthAtRef.current = Date.now();
+    localStorage.setItem("ramadan-app-token", a.token);
+    setToken(a.token);
+    // The login/register response already carries the profile and the
+    // amal state — seed both caches so the home screen opens at once,
+    // without the extra me/getMyState round trips that used to follow.
+    if (a.user) {
+      const meVal = { user: a.user };
+      queryClient.setQueryData(["me", a.token], meVal);
+      writeCache(`me|${a.token}`, meVal);
+    }
+    if (a.state && a.stateYear) {
+      queryClient.setQueryData(["mystate", a.token, a.stateYear], a.state);
+      writeCache(`mystate|${a.token}|${a.stateYear}`, a.state);
+    }
   }
   function handleLogout() {
     if (token) void api.logout({ token }).catch(() => undefined);
@@ -1985,6 +2048,7 @@ export function App() {
     localStorage.removeItem("ramadan-app-token");
     setToken("");
     setTab("home");
+    setQuranMounted(false);
     queryClient.clear();
   }
   function refreshTimes() {
@@ -2056,8 +2120,13 @@ export function App() {
             {tab === "calendar" && <CalendarTab user={user} calendar={calQ.data?.days} todayISO={todayISO} />}
             {tab === "amal" && <AmalTab token={token} hijriYear={hijriYear} calendar={calQ.data?.days} today={today} />}
             {tab === "khatam" && <KhatamTab token={token} hijriYear={hijriYear} today={today} onOpenPara={openParaInQuran} />}
-            {tab === "quran" && (
-              <QuranTab initialPara={quranPara} onConsumeInitialPara={() => setQuranPara(null)} />
+            {quranMounted && (
+              <QuranTab
+                initialPara={quranPara}
+                onConsumeInitialPara={() => setQuranPara(null)}
+                visible={tab === "quran"}
+                onShowSelf={() => setTab("quran")}
+              />
             )}
             {tab === "dua" && <DuaTab today={today} />}
             {tab === "hisab" && <HisabTab />}

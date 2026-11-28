@@ -52,9 +52,17 @@ const AUDIO_ERROR_TEXT = "অডিও চালু হয়নি — ইন�
 export default function QuranTab({
   initialPara,
   onConsumeInitialPara,
+  visible = true,
+  onShowSelf,
 }: {
   initialPara?: number | null;
   onConsumeInitialPara?: () => void;
+  /** false while another app tab is active: the tab content hides but the
+   *  audio element and the mini player stay alive, so a recitation in
+   *  progress keeps playing across tabs and the reading position is kept. */
+  visible?: boolean;
+  /** Called when the user taps the mini player while this tab is hidden. */
+  onShowSelf?: () => void;
 }) {
   const native = useMemo(() => isNative(), []);
   const [view, setView] = useState<View>({ kind: "list" });
@@ -66,6 +74,14 @@ export default function QuranTab({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // ----- one-ayah focus mode -----
+  // When on, the reading page shows a single ayah in place of the list.
+  // The shown ayah follows playback (playAt sets focusIdx, so when one
+  // ayah's audio ends and the next starts, the card swaps to it), and the
+  // user can also step manually with the prev/next buttons.
+  const [focus, setFocus] = useState(false);
+  const [focusIdx, setFocusIdx] = useState(0);
 
   // ----- downloads -----
   const [dlSet, setDlSet] = useState<Set<number>>(() => downloadedSurahs());
@@ -109,6 +125,7 @@ export default function QuranTab({
     setLoading(true);
     setLoadError(false);
     setReading(null);
+    setFocusIdx(0);
     ayahRefs.current.clear();
     (async () => {
       try {
@@ -155,6 +172,7 @@ export default function QuranTab({
     const token = ++playTokenRef.current;
     setAudioError(null);
     setNowPlaying({ index, ayah });
+    setFocusIdx(index);
     setPaused(false);
     const local = await getLocalUri(ayah.surah, ayah.g);
     if (token !== playTokenRef.current) return;
@@ -192,6 +210,23 @@ export default function QuranTab({
     } else {
       audio.pause();
     }
+  }
+
+  // ----- focus mode stepping -----
+  function stepFocus(delta: number) {
+    const ayahs = queueRef.current;
+    if (ayahs.length === 0) return;
+    const next = Math.min(ayahs.length - 1, Math.max(0, focusIdx + delta));
+    if (next === focusIdx) return;
+    // If a recitation session is active, stepping also moves the audio;
+    // otherwise it just moves the ayah on screen.
+    if (nowPlayingRef.current) void playAt(next);
+    else setFocusIdx(next);
+  }
+
+  function toggleFocusPlay() {
+    if (nowPlaying && nowPlaying.index === focusIdx) toggleMini();
+    else void playAt(focusIdx);
   }
 
   function handleEnded() {
@@ -382,7 +417,12 @@ export default function QuranTab({
 
     let lastSurah = 0;
     return (
-      <div className={nowPlaying ? "pb-24" : ""}>
+      <>
+      <div
+        aria-hidden={!visible}
+        style={visible ? undefined : { display: "none" }}
+        className={nowPlaying ? "pb-24" : ""}
+      >
         <audio
           ref={audioRef}
           preload="none"
@@ -409,6 +449,19 @@ export default function QuranTab({
             className="ml-auto flex items-center gap-1.5 rounded-full bg-[var(--gold)] px-4 py-2 text-sm font-bold text-[#0b3d2e] shadow-sm transition hover:brightness-105 disabled:opacity-50"
           >
             ▶ সব শুনুন
+          </button>
+          <button
+            type="button"
+            aria-pressed={focus}
+            disabled={loading || !reading || reading.ayahs.length === 0}
+            onClick={() => setFocus((f) => !f)}
+            className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold shadow-sm transition disabled:opacity-50 ${
+              focus
+                ? "bg-[var(--accent)] text-white"
+                : "border border-[var(--border)] bg-[var(--surface)] text-[var(--accent)] hover:bg-[var(--sage)]"
+            }`}
+          >
+            {focus ? "☰ তালিকা" : "🔍 এক-আয়াত ফোকাস"}
           </button>
         </div>
 
@@ -450,7 +503,7 @@ export default function QuranTab({
           </div>
         )}
 
-        {reading && !loading && (
+        {reading && !loading && !focus && (
           <div className="space-y-3">
             {reading.bismillah && (
               <p
@@ -544,8 +597,96 @@ export default function QuranTab({
           </div>
         )}
 
-        {/* mini player */}
-        {nowPlaying && (
+        {/* ----- one-ayah focus card ----- */}
+        {reading && !loading && focus && reading.ayahs.length > 0 && (() => {
+          const idx = Math.min(focusIdx, reading.ayahs.length - 1);
+          const ayah = reading.ayahs[idx];
+          if (!ayah) return null;
+          const isCurrent = nowPlaying?.ayah.g === ayah.g;
+          return (
+            <div>
+              <article className="rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface)] p-6 shadow-md">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--gold)] text-sm font-bold text-[#0b3d2e] shadow-sm">
+                    {bn(ayah.i)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-[var(--text)]">
+                      সূরা {surahMeta(ayah.surah)?.bn ?? bn(ayah.surah)} • আয়াত {bn(ayah.i)}
+                    </span>
+                    <span className="block text-xs text-[var(--dim)]">
+                      {bn(idx + 1)} / {bn(reading.ayahs.length)}
+                    </span>
+                  </span>
+                  {isCurrent && (
+                    <span className="shrink-0 rounded-full bg-[var(--sage)] px-2.5 py-1 text-xs font-bold text-[var(--accent)]">
+                      {paused ? "⏸ থেমে আছে" : "▶ চলছে"}
+                    </span>
+                  )}
+                </div>
+                <p
+                  dir="rtl"
+                  lang="ar"
+                  className="font-quran text-right text-[2.1rem] leading-loose text-[var(--text)]"
+                >
+                  {ayah.ar}
+                </p>
+                {ayah.pr && (
+                  <p className="mt-4 leading-relaxed text-[var(--dim)]">
+                    <span className="font-semibold text-[var(--accent)]">উচ্চারণ: </span>
+                    {ayah.pr}
+                  </p>
+                )}
+                <p className="mt-2 text-lg leading-relaxed text-[var(--text)]">{ayah.bn}</p>
+
+                <div className="mt-6 flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    aria-label="আগের আয়াত"
+                    disabled={idx <= 0}
+                    onClick={() => stepFocus(-1)}
+                    className="flex h-12 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--accent)] shadow-sm transition hover:bg-[var(--sage)] disabled:opacity-40"
+                  >
+                    ⏮ আগের
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={isCurrent && !paused ? "থামান" : "এই আয়াত শুনুন"}
+                    onClick={toggleFocusPlay}
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[var(--gold)] text-xl text-[#0b3d2e] shadow-md transition hover:brightness-105"
+                  >
+                    {isCurrent && !paused ? "⏸" : "▶"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="পরের আয়াত"
+                    disabled={idx >= reading.ayahs.length - 1}
+                    onClick={() => stepFocus(1)}
+                    className="flex h-12 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--accent)] shadow-sm transition hover:bg-[var(--sage)] disabled:opacity-40"
+                  >
+                    পরের ⏭
+                  </button>
+                </div>
+                <p className="mt-4 text-center text-xs leading-relaxed text-[var(--dim)]">
+                  শুনতে থাকলে এক আয়াত শেষ হলে পরের আয়াতটি নিজে থেকে এখানেই এসে চলতে থাকবে।
+                </p>
+              </article>
+              {showOfflineNote && (
+                <p className="px-2 pt-3 text-center text-xs leading-relaxed text-[var(--dim)]">
+                  শুনতে ইন্টারনেট লাগবে — অফলাইনের জন্য সূরাটি ডাউনলোড করে রাখুন
+                  (সূরার তালিকা থেকে ⬇ চাপুন)।
+                </p>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* mini player — global: rendered outside the tab content above, so
+          it stays visible and controllable on every app tab while a
+          recitation is playing (hidden in focus mode, whose card carries
+          its own controls) */}
+      {nowPlaying && !(focus && visible) && (
           <div
             className="fixed inset-x-0 z-40"
             style={{ bottom: "calc(4.9rem + env(safe-area-inset-bottom, 0px))" }}
@@ -555,7 +696,12 @@ export default function QuranTab({
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--gold)] text-sm font-bold text-[#0b3d2e]">
                   {bn(nowPlaying.ayah.i)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                <span
+                  className="min-w-0 flex-1 truncate text-sm font-semibold"
+                  onClick={() => {
+                    if (!visible) onShowSelf?.();
+                  }}
+                >
                   সূরা {surahMeta(nowPlaying.ayah.surah)?.bn ?? bn(nowPlaying.ayah.surah)}
                   {" • "}আয়াত {bn(nowPlaying.ayah.i)}
                   {audioError && (
@@ -583,15 +729,15 @@ export default function QuranTab({
               </div>
             </div>
           </div>
-        )}
-      </div>
+      )}
+      </>
     );
   }
 
   // ----- list page -----
 
   return (
-    <div>
+    <div aria-hidden={!visible} style={visible ? undefined : { display: "none" }}>
       <audio
         ref={audioRef}
         preload="none"
