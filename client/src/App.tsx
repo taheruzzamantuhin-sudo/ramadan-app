@@ -205,10 +205,12 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="font-display-bn flex items-center gap-2 text-lg font-bold text-[var(--text)]">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--gold)" aria-hidden="true" className="shrink-0">
-        <path d="M20.6 14.2A8.8 8.8 0 0 1 9.8 3.4a.6.6 0 0 0-.8-.8 10.5 10.5 0 1 0 12.4 12.4.6.6 0 0 0-.8-.8Z" />
-      </svg>
+    <h2 className="font-display-bn flex items-center gap-2.5 text-lg font-bold text-[var(--text)]">
+      <span className="title-chip" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--gold)">
+          <path d="M20.6 14.2A8.8 8.8 0 0 1 9.8 3.4a.6.6 0 0 0-.8-.8 10.5 10.5 0 1 0 12.4 12.4.6.6 0 0 0-.8-.8Z" />
+        </svg>
+      </span>
       <span>{children}</span>
     </h2>
   );
@@ -217,9 +219,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 const inputCls =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)] outline-none focus:border-[var(--gold)]";
 const primaryBtn =
-  "w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 font-semibold text-white disabled:opacity-50";
+  "w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 font-semibold text-white shadow-[0_5px_16px_-5px_rgba(11,61,46,0.6)] disabled:opacity-50";
 const ghostBtn =
-  "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)]";
+  "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] shadow-sm";
 
 /** Mirrors the server's canonicalPhone: ০১…, 01…, +8801…, spaces — সব একই নম্বর। */
 const BN_DIGIT_CHARS: Record<string, string> = {
@@ -480,7 +482,7 @@ function TabBar({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
             {tab === t.id && (
               <span aria-hidden="true" className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-[var(--gold)]" />
             )}
-            <span className={`flex h-8 w-10 items-center justify-center rounded-full ${tab === t.id ? "bg-[var(--sage)]" : ""}`}>
+            <span className={`flex h-8 w-10 items-center justify-center rounded-full ${tab === t.id ? "tab-pill-active" : ""}`}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d={t.path} />
               </svg>
@@ -713,6 +715,61 @@ function PrayerTrackerCard({
   );
 }
 
+// ---------- home hero slideshow ----------
+
+/** Famous-mosque photos rotating behind the home hero text. The first
+ *  frame is the long-standing bundled dusk photo, so the hero is never
+ *  blank; the rest are free-license photographs (Wikimedia Commons)
+ *  shipped beside the bundle as mosques/*.webp by
+ *  scripts/bundle-hero-images.mjs — the same dist-folder pattern as the
+ *  Quran audio. A photo that fails to load simply drops out of the
+ *  rotation, so a missing file can never break the hero. */
+const HERO_SLIDES: string[] = [
+  mosqueImg,
+  "mosques/kaaba.webp",
+  "mosques/nabawi.webp",
+  "mosques/dome-of-rock.webp",
+  "mosques/blue-mosque.webp",
+  "mosques/sheikh-zayed.webp",
+  "mosques/hagia-sophia.webp",
+  "mosques/putra.webp",
+];
+
+function HeroSlideshow() {
+  const [idx, setIdx] = useState(0);
+  const [running, setRunning] = useState(true);
+  const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
+  const slides = HERO_SLIDES.filter((s) => !failed.has(s));
+  // Pause while the phone screen / tab is hidden — no point cycling
+  // photos (or burning battery) where nobody can see them.
+  useEffect(() => {
+    const onVis = () => setRunning(!document.hidden);
+    onVis();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+  useEffect(() => {
+    if (!running || slides.length < 2) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % slides.length), 5000);
+    return () => clearInterval(t);
+  }, [running, slides.length]);
+  const active = Math.min(idx, Math.max(0, slides.length - 1));
+  return (
+    <div aria-hidden="true" className="hero-slides">
+      {slides.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          loading={i === 0 ? "eager" : "lazy"}
+          onError={() => setFailed((prev) => new Set(prev).add(src))}
+          className={`hero-slide ${i === active ? "is-active" : ""}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ---------- home tab ----------
 
 function HomeTab({
@@ -763,14 +820,16 @@ function HomeTab({
 
   return (
     <div className="space-y-4">
-      <div
-        className="poster-band overflow-hidden rounded-[var(--radius)] px-4 py-3 shadow-[0_4px_18px_rgba(11,61,46,0.25)] ring-1 ring-[var(--gold)]/40"
-        style={{
-          backgroundImage: `linear-gradient(165deg, rgba(5,32,23,0.90) 0%, rgba(5,32,23,0.74) 52%, rgba(3,20,14,0.88) 100%), url(${mosqueImg})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center 36%",
-        }}
-      >
+      <div className="poster-band relative overflow-hidden rounded-[var(--radius)] shadow-[0_12px_32px_-10px_rgba(11,61,46,0.5)] ring-1 ring-[var(--gold)]/50">
+        <HeroSlideshow />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `linear-gradient(165deg, rgba(5,32,23,0.90) 0%, rgba(5,32,23,0.74) 52%, rgba(3,20,14,0.88) 100%)`,
+          }}
+        />
+        <div className="relative px-4 py-3">
         <p className="text-center text-sm text-emerald-50">
           {fmtDateBn(today)} • জেলা: {district.bn}
         </p>
@@ -801,10 +860,11 @@ function HomeTab({
             <p className="text-xl font-bold text-white">{fmtTime(t.maghrib)}</p>
           </div>
         </div>
+        </div>
       </div>
 
       {today.isRamadan && (
-        <Card>
+        <Card className="card-greenwash">
           <SectionTitle>তিন আশরা — এখন {ashra.of} আশরা চলছে</SectionTitle>
           <ol className="mt-2 space-y-1.5">
             {ASHRAS.map((a) => (
@@ -865,7 +925,7 @@ function HomeTab({
 
       <PrayerTrackerCard token={token} hijriYear={hijriYear} today={today} />
 
-      <Card className="border-l-4 border-l-[var(--gold)]">
+      <Card className="card-goldwash border-l-4 border-l-[var(--gold)]">
         <SectionTitle>আজকের হাদিস — {hadithTopic(hadithIdx)}</SectionTitle>
         <p className="mt-2 leading-relaxed text-[var(--text)]">{hadith.text}</p>
         <p className="mt-2 text-sm text-[var(--dim)]">সূত্র: {hadith.source}</p>
@@ -2406,7 +2466,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+    <div className="app-shell min-h-screen text-[var(--text)]">
       <SafeAreaTopScrim backgroundColor="var(--bg)" />
       {!token || !user ? (
         token && meQ.isPending ? (
@@ -2434,7 +2494,7 @@ export function App() {
                   </svg>
                   আসসালামু আলাইকুম, {user.name}
                 </p>
-                <span className="rounded-full bg-[var(--sage)] px-2.5 py-1 text-sm font-medium">{findDistrict(user.districtEn).bn}</span>
+                <span className="rounded-full bg-[var(--gold-soft)] px-2.5 py-1 text-sm font-semibold text-[var(--accent)] ring-1 ring-[var(--gold)]/50">{findDistrict(user.districtEn).bn}</span>
               </div>
               <div className="gold-divider mt-3" aria-hidden="true" />
             </header>

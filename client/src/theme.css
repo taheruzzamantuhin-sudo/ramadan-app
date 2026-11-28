@@ -35,7 +35,7 @@
   --gold-soft: #f6ebc8;
   --sage: #e7efe9;
   --night: #0e1b2e;
-  --radius: 16px;
+  --radius: 20px;
   --space-surface: var(--surface);
   --space-surface-alt: var(--sage);
   --space-muted: var(--dim);
@@ -55,6 +55,32 @@
     --gold-soft: #2c2715;
     --sage: #173028;
   }
+  body {
+    background:
+      radial-gradient(90% 42% at 50% -6%, rgba(217, 182, 74, 0.12), transparent 60%),
+      radial-gradient(70% 34% at 88% 22%, rgba(46, 125, 90, 0.16), transparent 65%),
+      radial-gradient(60% 30% at 8% 58%, rgba(201, 162, 39, 0.06), transparent 60%),
+      linear-gradient(180deg, #0c1a15 0%, #0a1512 34%, #07100d 100%);
+  }
+}
+
+/* The app shell paints the same layered backdrop as the body (the shell
+   covers the viewport, so this is the layer the user actually sees). */
+.app-shell {
+  background:
+    radial-gradient(90% 42% at 50% -6%, rgba(217, 182, 74, 0.16), transparent 60%),
+    radial-gradient(70% 34% at 88% 22%, rgba(11, 61, 46, 0.1), transparent 65%),
+    radial-gradient(60% 30% at 8% 58%, rgba(201, 162, 39, 0.08), transparent 60%),
+    linear-gradient(180deg, #faf4e2 0%, #f7f0de 34%, #f2ead3 100%);
+}
+@media (prefers-color-scheme: dark) {
+  .app-shell {
+    background:
+      radial-gradient(90% 42% at 50% -6%, rgba(217, 182, 74, 0.12), transparent 60%),
+      radial-gradient(70% 34% at 88% 22%, rgba(46, 125, 90, 0.16), transparent 65%),
+      radial-gradient(60% 30% at 8% 58%, rgba(201, 162, 39, 0.06), transparent 60%),
+      linear-gradient(180deg, #0c1a15 0%, #0a1512 34%, #07100d 100%);
+  }
 }
 
 /* Phone tap targets: at least 32px tall. */
@@ -63,6 +89,15 @@
     min-height: 2rem;
   }
   body {
+    /* Rich layered backdrop: warm ivory base with soft gold and emerald
+       glows, so the whole app feels lit rather than flat. The app shell
+       paints the same layers (see .app-shell) — body is the fallback
+       behind overscroll. */
+    background:
+      radial-gradient(90% 42% at 50% -6%, rgba(217, 182, 74, 0.16), transparent 60%),
+      radial-gradient(70% 34% at 88% 22%, rgba(11, 61, 46, 0.1), transparent 65%),
+      radial-gradient(60% 30% at 8% 58%, rgba(201, 162, 39, 0.08), transparent 60%),
+      linear-gradient(180deg, #faf4e2 0%, #f7f0de 34%, #f2ead3 100%);
     font-family: "Noto Serif Bengali", "Hind Siliguri", "Noto Sans Bengali", system-ui, sans-serif;
     /* Bengali conjuncts (যুক্তাক্ষর) and vowel signs need a touch more
        line room and letter room than Latin defaults, or the matras crowd
@@ -95,9 +130,10 @@
    highlight at the top adds an inner glow / depth over the gradient. */
 .hero-band {
   background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 236, 170, 0.18), transparent 55%),
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 236, 170, 0.22), transparent 55%),
+    radial-gradient(80% 60% at 85% 100%, rgba(217, 182, 74, 0.14), transparent 60%),
     radial-gradient(circle at 1px 1px, rgba(201, 162, 39, 0.16) 1.1px, transparent 0) 0 0 / 22px 22px,
-    linear-gradient(160deg, #0d4a35 0%, #0b3d2e 55%, #07271d 100%);
+    linear-gradient(160deg, #0f5138 0%, #0b3d2e 55%, #06231a 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 24px 44px -24px rgba(217, 182, 74, 0.28),
@@ -107,11 +143,51 @@
   background-color: #0b3d2e;
 }
 
-/* Home poster band: a real mosque photo sits under a dark green wash
+/* Home poster band: real mosque photos sit under a dark green wash
    (set inline in App.tsx); this shadow keeps every line of text crisp
    and poster-clear over the bright parts of the photo. */
 .poster-band {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Hero slideshow: famous-mosque photos stacked full-bleed behind the
+   hero text. The active photo crossfades in over ~1.4s while a very
+   slow zoom gives it life; the dark gradient wash above the stack
+   (an overlay div in App.tsx) keeps the text readable throughout. */
+.hero-slides {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.hero-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 36%;
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+.hero-slide.is-active {
+  opacity: 1;
+  animation: hero-zoom 7.5s ease-out both;
+}
+@keyframes hero-zoom {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide {
+    transition: none;
+  }
+  .hero-slide.is-active {
+    animation: none;
+  }
 }
 
 @layer components {
@@ -121,12 +197,56 @@
     font-family: "Amiri Quran", "Amiri", "Scheherazade New", "Noto Naskh Arabic", serif;
   }
 
-  /* Premium card: soft layered shadow over the standard surface. */
+  /* Premium card: a gentle top sheen over the surface, a gold-kissed
+     border and a deep layered shadow — rich but still calm to read. */
   .card-pro {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface) 86%, #ffffff), var(--surface) 46%),
+      var(--surface);
+    border: 1px solid color-mix(in srgb, var(--border) 62%, var(--gold));
     border-radius: var(--radius);
-    box-shadow: 0 1px 2px rgba(11, 61, 46, 0.05), 0 8px 24px -12px rgba(11, 61, 46, 0.18);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      0 1px 2px rgba(11, 61, 46, 0.05),
+      0 12px 30px -12px rgba(11, 61, 46, 0.24);
+  }
+
+  /* Soft gold wash for cards that deserve a warm glow (hadith, ashra). */
+  .card-goldwash {
+    background:
+      linear-gradient(165deg, color-mix(in srgb, var(--gold-soft) 58%, var(--surface)) 0%, var(--surface) 82%),
+      var(--surface);
+  }
+
+  /* Soft emerald wash for calm accent cards. */
+  .card-greenwash {
+    background:
+      linear-gradient(165deg, color-mix(in srgb, var(--sage) 68%, var(--surface)) 0%, var(--surface) 82%),
+      var(--surface);
+  }
+
+  /* Deep-green gradient chip that carries the gold crescent in every
+     section title — one small jewel repeated across all tabs. */
+  .title-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 0.65rem;
+    flex-shrink: 0;
+    background: linear-gradient(150deg, #0f5138 0%, #0b3d2e 70%, #082a1f 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 3px 8px -2px rgba(11, 61, 46, 0.5);
+  }
+
+  /* Active tab pill: warm gold-to-sage gradient with a fine gold ring. */
+  .tab-pill-active {
+    background: linear-gradient(150deg, var(--gold-soft), var(--sage));
+    box-shadow:
+      inset 0 0 0 1px rgba(201, 162, 39, 0.5),
+      0 2px 6px -2px rgba(11, 61, 46, 0.35);
   }
 
   /* Hairline gold rule that fades out at both ends. */
@@ -135,11 +255,16 @@
     background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.55), transparent);
   }
 
-  /* Frosted-glass tab bar — driven by --surface, so it adapts to dark mode. */
+  /* Frosted-glass tab bar — driven by --surface, so it adapts to dark mode.
+     A gold hairline along the top edge and a soft upward shadow lift it
+     off the page. */
   .tabbar-glass {
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     background: color-mix(in srgb, var(--surface) 88%, transparent);
+    box-shadow:
+      inset 0 1px 0 rgba(201, 162, 39, 0.4),
+      0 -10px 28px -14px rgba(11, 61, 46, 0.35);
   }
 
   /* Primary gold button. */
