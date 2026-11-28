@@ -25,16 +25,17 @@
 
 :root {
   color-scheme: light dark;
-  --bg: #faf6ee;
+  --bg: #f7f0de;
   --surface: #ffffff;
   --text: #17352a;
   --dim: #5f7268;
-  --border: #e3ddcb;
+  --border: #e8e1cd;
   --accent: #0b3d2e;
   --gold: #c9a227;
+  --gold-soft: #f6ebc8;
   --sage: #e7efe9;
   --night: #0e1b2e;
-  --radius: 14px;
+  --radius: 16px;
   --space-surface: var(--surface);
   --space-surface-alt: var(--sage);
   --space-muted: var(--dim);
@@ -51,6 +52,7 @@
     --dim: #9db4a8;
     --border: #24443a;
     --accent: #d9b64a;
+    --gold-soft: #2c2715;
     --sage: #173028;
   }
 }
@@ -70,6 +72,14 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+  ::selection {
+    background: rgba(201, 162, 39, 0.38);
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
 }
 
 /* Display Bengali — headings, dates, titles. Same serif letterforms as
@@ -81,11 +91,17 @@
 }
 
 /* Home hero: deep-green gradient band (readable in both colour schemes)
-   with a subtle gold dot pattern, like mosque tilework. */
+   with a subtle gold dot pattern, like mosque tilework. A soft radial
+   highlight at the top adds an inner glow / depth over the gradient. */
 .hero-band {
   background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 236, 170, 0.18), transparent 55%),
     radial-gradient(circle at 1px 1px, rgba(201, 162, 39, 0.16) 1.1px, transparent 0) 0 0 / 22px 22px,
     linear-gradient(160deg, #0d4a35 0%, #0b3d2e 55%, #07271d 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 24px 44px -24px rgba(217, 182, 74, 0.28),
+    inset 0 -28px 48px -24px rgba(0, 0, 0, 0.45);
 }
 .pattern-band {
   background-color: #0b3d2e;
@@ -96,4 +112,96 @@
    and poster-clear over the bright parts of the photo. */
 .poster-band {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 0, 0, 0.4);
+}
+
+@layer components {
+  /* Arabic Qur'anic text — Amiri Quran first for its Qur'an-specific
+     glyphs and marks, with graceful fallbacks. */
+  .font-quran {
+    font-family: "Amiri Quran", "Amiri", "Scheherazade New", "Noto Naskh Arabic", serif;
+  }
+
+  /* Premium card: soft layered shadow over the standard surface. */
+  .card-pro {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px rgba(11, 61, 46, 0.05), 0 8px 24px -12px rgba(11, 61, 46, 0.18);
+  }
+
+  /* Hairline gold rule that fades out at both ends. */
+  .gold-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.55), transparent);
+  }
+
+  /* Frosted-glass tab bar — driven by --surface, so it adapts to dark mode. */
+  .tabbar-glass {
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+  }
+
+  /* Primary gold button. */
+  .btn-gold {
+    background: linear-gradient(160deg, #d9b64a, #c9a227);
+    color: #231a02;
+    font-weight: 700;
+    transition: transform 0.15s ease, filter 0.15s ease;
+  }
+  .btn-gold:hover {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+  }
+  .btn-gold:active {
+    filter: brightness(0.98);
+    transform: translateY(0);
+  }
+
+  /* Segmented toggle: sage track, raised surface pill for the active item.
+     In dark mode --accent is gold, so the active label turns gold there. */
+  .seg-control {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--sage);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .seg-active {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(11, 61, 46, 0.12), 0 4px 12px -6px rgba(11, 61, 46, 0.25);
+  }
+
+  /* The ayah currently playing gets a gold ring and a warm glow. */
+  .ayah-playing {
+    box-shadow: 0 0 0 2px var(--gold), 0 10px 30px -12px rgba(201, 162, 39, 0.45);
+  }
+
+  /* Loading placeholder with a travelling shine. */
+  .skeleton {
+    background: linear-gradient(100deg, var(--sage) 40%, color-mix(in srgb, var(--sage) 55%, var(--surface)) 50%, var(--sage) 60%);
+    background-size: 200% 100%;
+    animation: skeleton-shine 1.2s infinite;
+  }
+
+  /* Floating mini-player bar above the tab bar. */
+  .miniplayer-bar {
+    box-shadow: 0 -6px 30px -10px rgba(7, 39, 29, 0.35);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+}
+
+@keyframes skeleton-shine {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
 }

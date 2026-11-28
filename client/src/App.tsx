@@ -33,6 +33,7 @@ import {
   type NativePermState,
 } from "./native-notify";
 import { readCache, writeCache } from "./cache";
+import QuranTab from "./QuranTab";
 import heroImg from "./assets/media-generation-ramadan-hero-0-dc19abcf-fa4f-498d-a1b9-adca3aa3bdef.webp";
 import mosqueImg from "./assets/mosque-dusk.jpg";
 
@@ -176,7 +177,7 @@ function playAlarmSound() {
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <section className={`rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[0_2px_10px_rgba(11,61,46,0.07)] ${className}`}>
+    <section className={`card-pro p-4 ${className}`}>
       {children}
     </section>
   );
@@ -387,13 +388,14 @@ function Countdown({ today, tomorrow }: { today: DayInfo; tomorrow?: DayInfo }) 
 
 // ---------- tabs ----------
 
-type TabId = "home" | "calendar" | "amal" | "khatam" | "dua" | "hisab" | "settings";
+type TabId = "home" | "calendar" | "amal" | "khatam" | "quran" | "dua" | "hisab" | "settings";
 
 const TABS: { id: TabId; label: string; path: string }[] = [
   { id: "home", label: "হোম", path: "M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1Z" },
   { id: "calendar", label: "ক্যালেন্ডার", path: "M7 2v3M17 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" },
   { id: "amal", label: "আমল", path: "M9 12.5 11 14.5 15.5 10M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z" },
   { id: "khatam", label: "খতম", path: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" },
+  { id: "quran", label: "কুরআন", path: "M12 3.5c-1.8-1.6-4.2-2-8-2v16c3.8 0 6.2.4 8 2 1.8-1.6 4.2-2 8-2v-16c-3.8 0-6.2.4-8 2Zm0 0v16M17 7.5c-1.4.1-2.6.4-3.6 1M17 11.5c-1.4.1-2.6.4-3.6 1" },
   { id: "dua", label: "দোয়া", path: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13ZM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" },
   { id: "hisab", label: "হিসাব", path: "M5 3h14a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01" },
   { id: "settings", label: "সেটিংস", path: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.64 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09c0 .68.4 1.3 1 1.55.61.26 1.32.13 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01c.26.6.87 1 1.55 1H21a2 2 0 1 1 0 4h-.09c-.68 0-1.3.4-1.51 1Z" },
@@ -401,8 +403,8 @@ const TABS: { id: TabId; label: string; path: string }[] = [
 
 function TabBar({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
   return (
-    <nav aria-label="প্রধান মেনু" className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--surface)] pb-safe">
-      <div className="mx-auto grid max-w-2xl grid-cols-7">
+    <nav aria-label="প্রধান মেনু" className="tabbar-glass fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] pb-safe">
+      <div className="mx-auto grid max-w-2xl grid-cols-8">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -410,7 +412,7 @@ function TabBar({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
             aria-label={t.label}
             aria-current={tab === t.id ? "page" : undefined}
             onClick={() => setTab(t.id)}
-            className={`relative flex flex-col items-center gap-0.5 py-2 text-[0.8rem] font-semibold ${
+            className={`relative flex flex-col items-center gap-0.5 py-2 text-[0.72rem] font-semibold ${
               tab === t.id ? "text-[var(--accent)]" : "text-[var(--dim)]"
             }`}
           >
@@ -1063,11 +1065,12 @@ function TasbihCard({ token, saved }: { token: string; saved: { dhikr: string; c
 // ---------- khatam tab (its own section: ৩০ দিনে ১ খতম) ----------
 
 function KhatamTab({
-  token, hijriYear, today,
+  token, hijriYear, today, onOpenPara,
 }: {
   token: string;
   hijriYear: number;
   today?: DayInfo;
+  onOpenPara?: (para: number) => void;
 }) {
   const queryClient = useQueryClient();
   const stateQ = useQuery({
@@ -1130,6 +1133,16 @@ function KhatamTab({
               </span>
             </label>
           </div>
+          {onOpenPara && (
+            <button
+              type="button"
+              onClick={() => onOpenPara(todayPara)}
+              className="btn-gold mt-3 w-full rounded-lg px-4 py-2.5"
+              aria-label={`পারা ${bn(todayPara)} কুরআন ট্যাবে পড়ুন ও শুনুন`}
+            >
+              ▶ এই পারাটি পড়ুন / শুনুন
+            </button>
+          )}
         </Card>
       )}
 
@@ -1143,26 +1156,42 @@ function KhatamTab({
             const done = khatamSet.has(j.para);
             const isToday = todayPara === j.para;
             return (
-              <button
+              <div
                 key={j.para}
-                type="button"
-                onClick={() => khatamMut.mutate({ day: j.para, done: !done })}
-                aria-pressed={done}
-                aria-label={`দিন ${bn(j.para)} — পারা ${bn(j.para)}: ${j.name}, ${j.range}, পৃষ্ঠা ${bn(j.startPage)} থেকে ${bn(j.endPage)} — ${done ? "পড়া হয়েছে" : "পড়া হয়নি"}`}
-                className={`rounded-lg border px-1.5 py-2 text-center ${
+                className={`flex flex-col overflow-hidden rounded-lg border ${
                   done
                     ? "border-transparent bg-[var(--accent)] text-white"
                     : "border-[var(--border)] bg-[var(--surface)]"
                 } ${isToday ? "ring-2 ring-[var(--gold)]" : ""}`}
               >
-                <span className="block text-base font-bold leading-tight">দিন {bn(j.para)}</span>
-                <span className="block text-[0.8rem] font-semibold leading-tight">পারা {bn(j.para)}: {j.name}</span>
-                <span className={`mt-0.5 block text-[0.75rem] leading-snug ${done ? "text-white/85" : "text-[var(--dim)]"}`}>{j.range}</span>
-                <span className={`block text-[0.75rem] leading-tight ${done ? "text-white/85" : "text-[var(--dim)]"}`}>পৃষ্ঠা {bn(j.startPage)}–{bn(j.endPage)}</span>
-                <span className="mt-0.5 block text-[0.75rem] font-bold leading-tight">
-                  {done ? "✓ পড়া হয়েছে" : isToday ? "আজকের পড়া" : "—"}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => khatamMut.mutate({ day: j.para, done: !done })}
+                  aria-pressed={done}
+                  aria-label={`দিন ${bn(j.para)} — পারা ${bn(j.para)}: ${j.name}, ${j.range}, পৃষ্ঠা ${bn(j.startPage)} থেকে ${bn(j.endPage)} — ${done ? "পড়া হয়েছে" : "পড়া হয়নি"}`}
+                  className="flex-1 px-1.5 py-2 text-center"
+                >
+                  <span className="block text-base font-bold leading-tight">দিন {bn(j.para)}</span>
+                  <span className="block text-[0.8rem] font-semibold leading-tight">পারা {bn(j.para)}: {j.name}</span>
+                  <span className={`mt-0.5 block text-[0.75rem] leading-snug ${done ? "text-white/85" : "text-[var(--dim)]"}`}>{j.range}</span>
+                  <span className={`block text-[0.75rem] leading-tight ${done ? "text-white/85" : "text-[var(--dim)]"}`}>পৃষ্ঠা {bn(j.startPage)}–{bn(j.endPage)}</span>
+                  <span className="mt-0.5 block text-[0.75rem] font-bold leading-tight">
+                    {done ? "✓ পড়া হয়েছে" : isToday ? "আজকের পড়া" : "—"}
+                  </span>
+                </button>
+                {onOpenPara && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPara(j.para)}
+                    aria-label={`পারা ${bn(j.para)} কুরআন ট্যাবে পড়ুন ও শুনুন`}
+                    className={`px-1.5 py-1 text-[0.75rem] font-bold ${
+                      done ? "bg-white/15 text-white" : "bg-[var(--sage)] text-[var(--accent)]"
+                    }`}
+                  >
+                    ▶ পড়ুন/শুনুন
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -1741,6 +1770,11 @@ export function App() {
   const queryClient = useQueryClient();
   const [token, setToken] = useState<string>(() => localStorage.getItem("ramadan-app-token") ?? "");
   const [tab, setTab] = useState<TabId>("home");
+  const [quranPara, setQuranPara] = useState<number | null>(null);
+  const openParaInQuran = (para: number) => {
+    setQuranPara(para);
+    setTab("quran");
+  };
   const [todayISO, setTodayISO] = useState(() => isoOf(dhakaNow()));
   const alarmRungFor = useRef<string>("");
   const [alarmBanner, setAlarmBanner] = useState(false);
@@ -1984,9 +2018,17 @@ export function App() {
             </div>
           )}
           <main className="mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-4">
-            <header className="mb-4 flex items-center justify-between">
-              <p className="font-semibold">আসসালামু আলাইকুম, {user.name}</p>
-              <span className="rounded-full bg-[var(--sage)] px-2.5 py-1 text-sm font-medium">{findDistrict(user.districtEn).bn}</span>
+            <header className="mb-4">
+              <div className="flex items-center justify-between">
+                <p className="font-display-bn flex items-center gap-2 font-semibold">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--gold)" aria-hidden="true" className="shrink-0">
+                    <path d="M20.6 14.2A8.8 8.8 0 0 1 9.8 3.4a.6.6 0 0 0-.8-.8 10.5 10.5 0 1 0 12.4 12.4.6.6 0 0 0-.8-.8Z" />
+                  </svg>
+                  আসসালামু আলাইকুম, {user.name}
+                </p>
+                <span className="rounded-full bg-[var(--sage)] px-2.5 py-1 text-sm font-medium">{findDistrict(user.districtEn).bn}</span>
+              </div>
+              <div className="gold-divider mt-3" aria-hidden="true" />
             </header>
             {todayQ.isError && !today && (
               <Card className="mb-4">
@@ -2013,7 +2055,10 @@ export function App() {
             )}
             {tab === "calendar" && <CalendarTab user={user} calendar={calQ.data?.days} todayISO={todayISO} />}
             {tab === "amal" && <AmalTab token={token} hijriYear={hijriYear} calendar={calQ.data?.days} today={today} />}
-            {tab === "khatam" && <KhatamTab token={token} hijriYear={hijriYear} today={today} />}
+            {tab === "khatam" && <KhatamTab token={token} hijriYear={hijriYear} today={today} onOpenPara={openParaInQuran} />}
+            {tab === "quran" && (
+              <QuranTab initialPara={quranPara} onConsumeInitialPara={() => setQuranPara(null)} />
+            )}
             {tab === "dua" && <DuaTab today={today} />}
             {tab === "hisab" && <HisabTab />}
             {tab === "settings" && (
