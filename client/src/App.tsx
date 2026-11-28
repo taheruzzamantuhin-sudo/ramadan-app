@@ -240,6 +240,25 @@ export interface AuthResult {
   stateYear?: number;
 }
 
+/**
+ * One automatic retry for auth calls — but only when the failure looks
+ * like a network hiccup (fetch failed / timeout / abort). A server-sent
+ * error (SpaceActionError, e.g. wrong password) is never retried: its
+ * Bengali message is the real answer and must reach the user at once.
+ * On a cold first open the backend may need a couple of seconds to wake
+ * its storage reads; the retry means the user usually never sees that
+ * first failure at all.
+ */
+async function withAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof SpaceActionError) throw e;
+    await new Promise((r) => setTimeout(r, 900));
+    return await fn();
+  }
+}
+
 function AuthScreen({
   onAuthed,
 }: {
@@ -253,18 +272,19 @@ function AuthScreen({
   const [error, setError] = useState("");
 
   const register = useMutation({
-    mutationFn: async (p: string) => await api.register({ name, phone: p, password, districtEn }),
+    mutationFn: async (p: string) => await withAuthRetry(() => api.register({ name, phone: p, password, districtEn })),
     onSuccess: (d) => onAuthed(d as unknown as AuthResult),
     onError: (e) => setError(e instanceof Error ? e.message : "অ্যাকাউন্ট তৈরি হয়নি"),
   });
   const login = useMutation({
-    mutationFn: async (p: string) => await api.login({ phone: p, password }),
+    mutationFn: async (p: string) => await withAuthRetry(() => api.login({ phone: p, password })),
     onSuccess: (d) => onAuthed(d as unknown as AuthResult),
     onError: (e) => setError(e instanceof Error ? e.message : "লগইন হয়নি"),
   });
 
   function submit(ev: React.FormEvent) {
     ev.preventDefault();
+    if (busy) return; // double-tap / double-submit guard
     setError("");
     const cleanPhone = normalizePhoneInput(phone);
     if (cleanPhone.length < 11) return setError("সঠিক মোবাইল নম্বর দিন (কমপক্ষে ১১ সংখ্যার)");
@@ -356,7 +376,7 @@ function AuthScreen({
         )}
         {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
         <button type="submit" disabled={busy} className={primaryBtn}>
-          {busy ? "অপেক্ষা করুন…" : mode === "register" ? "অ্যাকাউন্ট খুলুন" : "লগইন করুন"}
+          {busy ? (mode === "register" ? "অ্যাকাউন্ট খোলা হচ্ছে…" : "লগইন হচ্ছে…") : mode === "register" ? "অ্যাকাউন্ট খুলুন" : "লগইন করুন"}
         </button>
       </form>
       <p className="mt-4 text-center text-sm text-[var(--dim)]">
