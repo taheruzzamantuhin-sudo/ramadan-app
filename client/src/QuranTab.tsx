@@ -76,6 +76,12 @@ export default function QuranTab({
   // user can also step manually with the prev/next buttons.
   const [focus, setFocus] = useState(false);
   const [focusIdx, setFocusIdx] = useState(0);
+  // The previously shown focus ayah, kept one render behind so the card
+  // can slide in from the direction of travel (next vs previous ayah).
+  const prevFocusIdxRef = useRef(0);
+  useEffect(() => {
+    prevFocusIdxRef.current = focusIdx;
+  }, [focusIdx]);
 
   // ----- audio player -----
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -507,9 +513,13 @@ export default function QuranTab({
           const ayah = reading.ayahs[idx];
           if (!ayah) return null;
           const isCurrent = nowPlaying?.ayah.g === ayah.g;
+          const dir = idx < prevFocusIdxRef.current ? "prev" : "next";
           return (
             <div>
-              <article className="rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface)] p-6 shadow-md">
+              <article
+                key={ayah.g}
+                className={`ayah-card-${dir} rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface)] p-6 shadow-md`}
+              >
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--gold)] text-sm font-bold text-[#0b3d2e] shadow-sm">
                     {bn(ayah.i)}

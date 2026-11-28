@@ -205,3 +205,44 @@
     background-position: -80% 0;
   }
 }
+
+/* One-ayah focus card: each new ayah fades in with a gentle slide from
+   the direction of travel and a barely-there settle scale. The card is
+   remounted per ayah (keyed by the ayah), so the animation replays on
+   every change — auto-advance and prev/next stepping alike. */
+@keyframes ayah-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes ayah-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.ayah-card-next {
+  animation: ayah-in-next 0.45s ease both;
+}
+
+.ayah-card-prev {
+  animation: ayah-in-prev 0.45s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ayah-card-next,
+  .ayah-card-prev {
+    animation: none;
+  }
+}
