@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SafeAreaTopScrim, setFailureNoticeText } from "@hatch/space-sdk/client";
+import { SafeAreaTopScrim, SpaceActionError, setFailureNoticeText } from "@hatch/space-sdk/client";
 import { actionFields } from "@hatch/space-sdk/fields" with { type: "macro" };
 import { api, type ApiResponse } from "./api";
 import type { Actions } from "../../server/src/actions";
@@ -40,8 +40,16 @@ import mosqueImg from "./assets/mosque-dusk.jpg";
 const FIELDS = actionFields<typeof Actions>();
 
 setFailureNoticeText((error) => {
-  const m = error instanceof Error ? error.message : "";
-  return m && /[\u0980-\u09FF]/.test(m) ? m : "কিছু সমস্যা হয়েছে — আবার চেষ্টা করুন";
+  // সার্ভার সত্যিকারের ত্রুটি ফেরত দিলে (SpaceActionError) তার বার্তাই দেখাই —
+  // বাংলায় থাকলে হুবহু, না থাকলে জেনেরিক বাংলা বার্তা। কিন্তু নেটওয়ার্কের
+  // ক্ষণিক ত্রুটি (fetch ব্যর্থ, timeout, abort — SpaceActionError নয়) হলে
+  // কোনো নোটিস দেখাই না: অ্যাপ ক্যাশ থেকে চলতে থাকে, সংযোগ ফিরলেই নিজে
+  // নিজে ঠিক হয়ে যায় — ভয়-দেখানো টোস্টের দরকার নেই।
+  if (error instanceof SpaceActionError) {
+    const m = error.message ?? "";
+    return /[\u0980-\u09FF]/.test(m) ? m : "কিছু সমস্যা হয়েছে — আবার চেষ্টা করুন";
+  }
+  return null;
 });
 
 type User = ApiResponse<typeof api, "me">["user"] & object;
@@ -850,6 +858,9 @@ function AmalTab({
     mutationFn: async (v: { day: number; status: "kept" | "qaza" | "none" }) =>
       await api.setRozaMark({ token, hijriYear, day: v.day, status: v.status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mystate", token, hijriYear] }),
+    // নীরব: স্বয়ংক্রিয় রোজা-টিকও এই mutation ব্যবহার করে — ব্যর্থ হলে
+    // টোস্ট নয়, পরের স্টেট-লোডেই আসল অবস্থা দেখা যাবে।
+    onError: () => {},
   });
 
   function cycleRoza(day: number) {
@@ -1986,6 +1997,8 @@ export function App() {
 
   const heartbeat = useMutation({
     mutationFn: async () => await api.heartbeat({ token }),
+    // সম্পূর্ণ ব্যাকগ্রাউন্ডের — ব্যর্থ হলেও কোনো নোটিস নয়।
+    onError: () => {},
   });
   useEffect(() => {
     // A fresh login/register already stamped lastActiveAt on the server —
