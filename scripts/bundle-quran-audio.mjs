@@ -155,39 +155,85 @@ async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   const all = Array.from({ length: TOTAL }, (_, i) => i + 1);
 
-  console.log("[quran-audio] downloading MP3s…");
-  let pending = all;
-  for (let pass = 1; pass <= 4 && pending.length > 0; pass++) {
-    if (pass > 1) {
-      const wait = 5000 * pass;
-      console.log(
-        `[quran-audio] download retry pass ${pass}: ${pending.length} left, waiting ${wait / 1000}s`,
-      );
-      await sleep(wait);
+  // ----- fast path: pre-transcoded opus hosted on Cloudflare Pages -----
+  // The Islamic Network CDN stalls under 6,236 requests from GitHub's
+  // datacenter IPs (run #22 sat in the old download+transcode step for
+  // over 1.5 hours). The identical opus set — transcoded and verified
+  // locally (6,236 files, 161.9 MiB) — is mirrored at
+  // amolkhata-audio.pages.dev, and Cloudflare's edge serves the build
+  // runners quickly. Any incompleteness falls back to the full
+  // download + transcode pipeline below.
+  const HOSTED_BASE =
+    process.env.QURAN_AUDIO_BASE_URL ||
+    "https://amolkhata-audio.pages.dev/quran-audio";
+  async function fetchHostedOne(g) {
+    const dest = path.join(OUT_DIR, `${g}.opus`);
+    if (existsSync(dest) && statSync(dest).size > 500) return;
+    let lastErr;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const res = await fetch(`${HOSTED_BASE}/${g}.opus`, {
+          headers: FETCH_HEADERS,
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length <= 500) throw new Error(`too small: ${buf.length}`);
+        const tmp = `${dest}.tmp`;
+        writeFileSync(tmp, buf);
+        renameSync(tmp, dest);
+        return;
+      } catch (e) {
+        lastErr = e;
+        await sleep(1000 * attempt);
+      }
     }
-    pending = await pool(pending, DL_JOBS, downloadOne, `download pass ${pass}`);
-  }
-  if (pending.length > 0) {
-    throw new Error(
-      `[quran-audio] downloads incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
-    );
+    throw new Error(`hosted fetch ${g} failed: ${lastErr}`);
   }
 
-  console.log("[quran-audio] transcoding to Opus 12 kbps…");
-  pending = all;
-  for (let pass = 1; pass <= 3 && pending.length > 0; pass++) {
-    if (pass > 1) {
-      console.log(
-        `[quran-audio] transcode retry pass ${pass}: ${pending.length} left`,
-      );
-      await sleep(2000);
-    }
-    pending = await pool(pending, ENC_JOBS, encodeOne, `transcode pass ${pass}`);
-  }
-  if (pending.length > 0) {
-    throw new Error(
-      `[quran-audio] transcodes incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
+  console.log("[quran-audio] fetching hosted opus bundle…");
+  const hostedPending = await pool(all, 24, fetchHostedOne, "hosted fetch");
+  if (hostedPending.length === 0) {
+    console.log("[quran-audio] hosted bundle complete — skipping download + transcode");
+  } else {
+    console.log(
+      `[quran-audio] hosted fetch incomplete (${hostedPending.length} missing) — falling back to CDN download + transcode`,
     );
+
+    console.log("[quran-audio] downloading MP3s…");
+    let pending = all;
+    for (let pass = 1; pass <= 4 && pending.length > 0; pass++) {
+      if (pass > 1) {
+        const wait = 5000 * pass;
+        console.log(
+          `[quran-audio] download retry pass ${pass}: ${pending.length} left, waiting ${wait / 1000}s`,
+        );
+        await sleep(wait);
+      }
+      pending = await pool(pending, DL_JOBS, downloadOne, `download pass ${pass}`);
+    }
+    if (pending.length > 0) {
+      throw new Error(
+        `[quran-audio] downloads incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
+      );
+    }
+
+    console.log("[quran-audio] transcoding to Opus 12 kbps…");
+    pending = all;
+    for (let pass = 1; pass <= 3 && pending.length > 0; pass++) {
+      if (pass > 1) {
+        console.log(
+          `[quran-audio] transcode retry pass ${pass}: ${pending.length} left`,
+        );
+        await sleep(2000);
+      }
+      pending = await pool(pending, ENC_JOBS, encodeOne, `transcode pass ${pass}`);
+    }
+    if (pending.length > 0) {
+      throw new Error(
+        `[quran-audio] transcodes incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
+      );
+    }
   }
 
   // ----- verify -----
