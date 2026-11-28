@@ -28,11 +28,18 @@ const CACHE = path.join(ROOT, "client", ".quran-audio-cache");
 const SRC_DIR = path.join(CACHE, "mp3");
 const OUT_DIR = path.join(CACHE, "opus");
 const TOTAL = 6236;
-const DL_JOBS = Number(process.env.QURAN_DL_JOBS || 16);
+const DL_JOBS = Number(process.env.QURAN_DL_JOBS || 10);
 const ENC_JOBS = Number(process.env.QURAN_ENC_JOBS || 4);
 
 const cdnUrl = (g) =>
   `https://cdn.islamic.network/quran/audio/64/ar.alafasy/${g}.mp3`;
+// Some CDN edges throttle unfamiliar user agents / datacenter IPs; a
+// browser UA keeps the requests looking like ordinary app traffic.
+const FETCH_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Linux; Android 13; Amolkhata) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+};
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -52,14 +59,26 @@ function run(cmd, args) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Failure-collecting pool: a worker error NEVER rejects the pool — the
+// failed items are returned so main() can retry them in later passes.
+// (The first CI run with this script died a few minutes in because one
+// rejected worker promise killed Promise.all and with it the build.)
 async function pool(items, jobs, worker, label) {
   let idx = 0;
   let done = 0;
   let lastLog = 0;
+  const failed = [];
   async function lane() {
     while (idx < items.length) {
       const item = items[idx++];
-      await worker(item);
+      try {
+        await worker(item);
+      } catch (e) {
+        failed.push(item);
+        if (failed.length <= 5) {
+          console.warn(`[quran-audio] ${label}: item ${item} failed (${e.message})`);
+        }
+      }
       done++;
       if (done - lastLog >= 500 || done === items.length) {
         lastLog = done;
@@ -70,6 +89,7 @@ async function pool(items, jobs, worker, label) {
   await Promise.all(
     Array.from({ length: Math.min(jobs, items.length) }, () => lane()),
   );
+  return failed;
 }
 
 async function downloadOne(g) {
@@ -78,7 +98,7 @@ async function downloadOne(g) {
   let lastErr;
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
-      const res = await fetch(cdnUrl(g));
+      const res = await fetch(cdnUrl(g), { headers: FETCH_HEADERS });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length <= 1000) throw new Error(`too small: ${buf.length}`);
@@ -88,7 +108,7 @@ async function downloadOne(g) {
       return;
     } catch (e) {
       lastErr = e;
-      await sleep(500 * attempt);
+      await sleep(1500 * attempt);
     }
   }
   throw new Error(`download ${g} failed: ${lastErr}`);
@@ -136,10 +156,39 @@ async function main() {
   const all = Array.from({ length: TOTAL }, (_, i) => i + 1);
 
   console.log("[quran-audio] downloading MP3s…");
-  await pool(all, DL_JOBS, downloadOne, "download");
+  let pending = all;
+  for (let pass = 1; pass <= 4 && pending.length > 0; pass++) {
+    if (pass > 1) {
+      const wait = 5000 * pass;
+      console.log(
+        `[quran-audio] download retry pass ${pass}: ${pending.length} left, waiting ${wait / 1000}s`,
+      );
+      await sleep(wait);
+    }
+    pending = await pool(pending, DL_JOBS, downloadOne, `download pass ${pass}`);
+  }
+  if (pending.length > 0) {
+    throw new Error(
+      `[quran-audio] downloads incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
+    );
+  }
 
   console.log("[quran-audio] transcoding to Opus 12 kbps…");
-  await pool(all, ENC_JOBS, encodeOne, "transcode");
+  pending = all;
+  for (let pass = 1; pass <= 3 && pending.length > 0; pass++) {
+    if (pass > 1) {
+      console.log(
+        `[quran-audio] transcode retry pass ${pass}: ${pending.length} left`,
+      );
+      await sleep(2000);
+    }
+    pending = await pool(pending, ENC_JOBS, encodeOne, `transcode pass ${pass}`);
+  }
+  if (pending.length > 0) {
+    throw new Error(
+      `[quran-audio] transcodes incomplete: ${pending.length} missing, e.g. ${pending.slice(0, 10).join(",")}`,
+    );
+  }
 
   // ----- verify -----
   const files = readdirSync(OUT_DIR).filter((f) => f.endsWith(".opus"));
