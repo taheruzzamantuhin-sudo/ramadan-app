@@ -1,18 +1,13 @@
 // আল-কুরআন ট্যাব — পারা ও সূরা অনুযায়ী তিলাওয়াত পাঠ, আয়াতভিত্তিক
-// অডিও (স্ট্রিমিং/ডাউনলোড), বাংলা অর্থ ও উচ্চারণসহ।
-// ডেটা ও অডিও লজিক: ./quran.ts
+// অডিও, বাংলা অর্থ ও উচ্চারণসহ। সূরার অডিও অ্যাপে বান্ডল করা (অফলাইন),
+// পারার অডিও স্ট্রিমিং। ডেটা ও অডিও লজিক: ./quran.ts
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { KHATAM_PLAN } from "./content";
 import {
   SURAHS,
   audioUrl,
-  deleteSurahDownload,
-  downloadInfo,
-  downloadSurah,
-  downloadedSurahs,
-  getLocalUri,
-  isNative,
+  bundledAudioUrl,
   loadPara,
   loadSurah,
   type ParaAyah,
@@ -47,7 +42,7 @@ interface NowPlaying {
   ayah: ParaAyah;
 }
 
-const AUDIO_ERROR_TEXT = "অডিও চালু হয়নি — ইন্টারনেট সংযোগ দেখুন";
+const AUDIO_ERROR_TEXT = "অডিও চালু হয়নি — আবার চেষ্টা করুন";
 
 export default function QuranTab({
   initialPara,
@@ -64,7 +59,6 @@ export default function QuranTab({
   /** Called when the user taps the mini player while this tab is hidden. */
   onShowSelf?: () => void;
 }) {
-  const native = useMemo(() => isNative(), []);
   const [view, setView] = useState<View>({ kind: "list" });
   const [mode, setMode] = useState<"para" | "surah">("para");
   const [query, setQuery] = useState("");
@@ -83,13 +77,6 @@ export default function QuranTab({
   const [focus, setFocus] = useState(false);
   const [focusIdx, setFocusIdx] = useState(0);
 
-  // ----- downloads -----
-  const [dlSet, setDlSet] = useState<Set<number>>(() => downloadedSurahs());
-  const [dlProgress, setDlProgress] = useState<
-    Record<number, { done: number; total: number }>
-  >({});
-  const [dlBusy, setDlBusy] = useState<Record<number, boolean>>({});
-
   // ----- audio player -----
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
@@ -100,6 +87,8 @@ export default function QuranTab({
   const playTokenRef = useRef(0);
   const ayahRefs = useRef(new Map<number, HTMLElement>());
 
+  const viewRef = useRef(view);
+  viewRef.current = view;
   nowPlayingRef.current = nowPlaying;
   queueRef.current = reading?.ayahs ?? [];
 
@@ -174,11 +163,14 @@ export default function QuranTab({
     setNowPlaying({ index, ayah });
     setFocusIdx(index);
     setPaused(false);
-    const local = await getLocalUri(ayah.surah, ayah.g);
-    if (token !== playTokenRef.current) return;
     const audio = audioRef.current;
     if (!audio) return;
-    audio.src = local ?? audioUrl(ayah.g);
+    // সূরা অনুযায়ী শুনলে অ্যাপে বান্ডল করা লোকাল অডিও (অফলাইন);
+    // পারা অনুযায়ী শুনলে আগের মতোই CDN থেকে স্ট্রিম।
+    audio.src =
+      viewRef.current.kind === "surah"
+        ? bundledAudioUrl(ayah.g)
+        : audioUrl(ayah.g);
     try {
       await audio.play();
     } catch {
@@ -258,43 +250,6 @@ export default function QuranTab({
     stopAudio();
     setAudioError(null);
     setView({ kind: "list" });
-    setDlSet(downloadedSurahs());
-  }
-
-  // ----- download actions -----
-
-  async function handleDownload(n: number) {
-    if (!native || dlBusy[n]) return;
-    const prev = downloadInfo(n);
-    setDlBusy((m) => ({ ...m, [n]: true }));
-    setDlProgress((m) => ({
-      ...m,
-      [n]: { done: prev?.done ?? 0, total: prev?.total ?? surahMeta(n)?.ayahs ?? 0 },
-    }));
-    try {
-      await downloadSurah(n, (done, total) =>
-        setDlProgress((m) => ({ ...m, [n]: { done, total } })),
-      );
-    } finally {
-      setDlBusy((m) => ({ ...m, [n]: false }));
-      setDlProgress((m) => {
-        const next = { ...m };
-        delete next[n];
-        return next;
-      });
-      setDlSet(downloadedSurahs());
-    }
-  }
-
-  async function handleDeleteDownload(n: number) {
-    if (!native || dlBusy[n]) return;
-    setDlBusy((m) => ({ ...m, [n]: true }));
-    try {
-      await deleteSurahDownload(n);
-    } finally {
-      setDlBusy((m) => ({ ...m, [n]: false }));
-      setDlSet(downloadedSurahs());
-    }
   }
 
   // ----- list filtering -----
@@ -311,58 +266,7 @@ export default function QuranTab({
     );
   }, [query]);
 
-  const downloadedList = useMemo(
-    () => SURAHS.filter((s) => dlSet.has(s.n)),
-    [dlSet],
-  );
-
   // ================= render =================
-
-  const downloadButton = (meta: SurahMeta) => {
-    if (!native) return null;
-    const busy = !!dlBusy[meta.n];
-    const progress = dlProgress[meta.n];
-    if (dlSet.has(meta.n)) {
-      return (
-        <button
-          type="button"
-          aria-label={`সূরা ${meta.bn}-এর ডাউনলোড মুছুন`}
-          disabled={busy}
-          onClick={() => void handleDeleteDownload(meta.n)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-base text-[var(--dim)] shadow-sm transition hover:text-red-700 disabled:opacity-50"
-        >
-          🗑
-        </button>
-      );
-    }
-    if (busy && progress && progress.total > 0) {
-      const pct = Math.min(100, Math.round((progress.done / progress.total) * 100));
-      return (
-        <span className="flex w-24 shrink-0 flex-col items-stretch gap-1" aria-live="polite">
-          <span className="text-center text-xs font-semibold text-[var(--accent)]">
-            ডাউনলোড হচ্ছে… {bn(pct)}%
-          </span>
-          <span className="h-1.5 overflow-hidden rounded-full bg-[var(--sage)]">
-            <span
-              className="block h-full rounded-full bg-[var(--gold)] transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </span>
-        </span>
-      );
-    }
-    return (
-      <button
-        type="button"
-        aria-label={`সূরা ${meta.bn} অডিও ডাউনলোড করুন`}
-        disabled={busy}
-        onClick={() => void handleDownload(meta.n)}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-base text-[var(--accent)] shadow-sm transition hover:bg-[var(--sage)] disabled:opacity-50"
-      >
-        ⬇
-      </button>
-    );
-  };
 
   const surahRow = (meta: SurahMeta) => (
     <div
@@ -380,11 +284,6 @@ export default function QuranTab({
         <span className="min-w-0">
           <span className="flex flex-wrap items-center gap-2 text-base font-bold text-[var(--text)]">
             সূরা {meta.bn}
-            {dlSet.has(meta.n) && (
-              <span className="rounded-full bg-[var(--sage)] px-2 py-0.5 text-xs font-semibold text-[var(--accent)]">
-                ✓ ডাউনলোড করা
-              </span>
-            )}
           </span>
           <span className="mt-0.5 block truncate text-sm text-[var(--dim)]">
             {meta.en} • {bn(meta.ayahs)} আয়াত • {meta.type}
@@ -394,7 +293,6 @@ export default function QuranTab({
           →
         </span>
       </button>
-      {downloadButton(meta)}
     </div>
   );
 
@@ -412,8 +310,8 @@ export default function QuranTab({
     const subtitle = isSurah
       ? `${meta?.en ?? ""} • ${bn(meta?.ayahs ?? 0)} আয়াত • ${meta?.type ?? ""}`
       : (plan?.range ?? "");
-    const showOfflineNote =
-      native && !(isSurah && dlSet.has(view.n)) && !loading && !loadError;
+    const showParaNote = !isSurah && !loading && !loadError;
+    const showSurahNote = isSurah && !loading && !loadError;
 
     let lastSurah = 0;
     return (
@@ -588,10 +486,16 @@ export default function QuranTab({
               );
             })}
 
-            {showOfflineNote && (
+            {showParaNote && (
               <p className="px-2 pt-2 text-center text-xs leading-relaxed text-[var(--dim)]">
-                শুনতে ইন্টারনেট লাগবে — অফলাইনের জন্য সূরাটি ডাউনলোড করে রাখুন
-                (সূরার তালিকা থেকে ⬇ চাপুন)।
+                পারা অনুযায়ী শুনতে ইন্টারনেট লাগবে — সূরা অনুযায়ী শুনলে
+                অ্যাপের ভেতরের অডিও থেকে ইন্টারনেট ছাড়াই চলবে।
+              </p>
+            )}
+            {showSurahNote && (
+              <p className="px-2 pt-2 text-center text-xs leading-relaxed text-[var(--dim)]">
+                এই সূরার তিলাওয়াত অ্যাপের ভেতরেই আছে — ইন্টারনেট ছাড়াই
+                শোনা যাবে।
               </p>
             )}
           </div>
@@ -671,10 +575,16 @@ export default function QuranTab({
                   শুনতে থাকলে এক আয়াত শেষ হলে পরের আয়াতটি নিজে থেকে এখানেই এসে চলতে থাকবে।
                 </p>
               </article>
-              {showOfflineNote && (
+              {showParaNote && (
                 <p className="px-2 pt-3 text-center text-xs leading-relaxed text-[var(--dim)]">
-                  শুনতে ইন্টারনেট লাগবে — অফলাইনের জন্য সূরাটি ডাউনলোড করে রাখুন
-                  (সূরার তালিকা থেকে ⬇ চাপুন)।
+                  পারা অনুযায়ী শুনতে ইন্টারনেট লাগবে — সূরা অনুযায়ী শুনলে
+                  অ্যাপের ভেতরের অডিও থেকে ইন্টারনেট ছাড়াই চলবে।
+                </p>
+              )}
+              {showSurahNote && (
+                <p className="px-2 pt-3 text-center text-xs leading-relaxed text-[var(--dim)]">
+                  এই সূরার তিলাওয়াত অ্যাপের ভেতরেই আছে — ইন্টারনেট ছাড়াই
+                  শোনা যাবে।
                 </p>
               )}
             </div>
@@ -828,16 +738,6 @@ export default function QuranTab({
             className="mb-4 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-base text-[var(--text)] shadow-sm outline-none transition placeholder:text-[var(--dim)] focus:border-[var(--gold)] focus:ring-2 focus:ring-[var(--gold)]/40"
           />
 
-          {!query.trim() && downloadedList.length > 0 && (
-            <section aria-label="ডাউনলোড করা সূরা" className="mb-5">
-              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-[var(--accent)]">
-                <span aria-hidden="true" className="h-4 w-1 rounded-full bg-[var(--gold)]" />
-                ডাউনলোড করা — অফলাইনে শুনুন
-              </h3>
-              <div className="space-y-3">{downloadedList.map(surahRow)}</div>
-            </section>
-          )}
-
           {filteredSurahs.length === 0 ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center shadow-sm">
               <p className="text-base font-semibold text-[var(--text)]">
@@ -851,11 +751,10 @@ export default function QuranTab({
             <div className="space-y-3">{filteredSurahs.map(surahRow)}</div>
           )}
 
-          {native && (
-            <p className="px-2 pt-4 text-center text-xs leading-relaxed text-[var(--dim)]">
-              ⬇ চাপলে সূরার অডিও ডিভাইসে নেমে আসবে — তারপর ইন্টারনেট ছাড়াই শোনা যাবে।
-            </p>
-          )}
+          <p className="px-2 pt-4 text-center text-xs leading-relaxed text-[var(--dim)]">
+            সব সূরার তিলাওয়াত অ্যাপের ভেতরেই আছে — ডাউনলোড ছাড়াই
+            ইন্টারনেট ছাড়া শোনা যাবে।
+          </p>
         </div>
       )}
     </div>

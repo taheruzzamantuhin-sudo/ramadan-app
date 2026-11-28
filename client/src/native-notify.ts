@@ -13,9 +13,10 @@
 // the existing in-page timers in notify.ts remain the only mechanism.
 //
 // Scheduling model: syncNativeSchedule() rebuilds the whole pending set
-// from the days the app already knows (today, tomorrow and the full
-// Ramadan calendar when loaded) — hadith at 08:00 and at Iftar−10 min,
-// Sehri alarm at Fajr−alarmMinutes — then reconciles against what the OS
+// from the days the app already knows (today, tomorrow, the coming week
+// and the full Ramadan calendar when loaded) — hadith at 08:00 and at
+// Iftar−10 min, a prayer hadith at each of the five waqt starts, Sehri
+// alarm at Fajr−alarmMinutes — then reconciles against what the OS
 // already holds: stale entries are cancelled, missing ones are added, and
 // entries whose time or text changed are replaced. It runs on every app
 // open and whenever the underlying data or settings change, so the OS
@@ -27,6 +28,7 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 import { hadithNotification, hadithSlotsForDay, type DayLike } from "./notify";
+import { PRAYER_HADITHS, WAQTS, prayerHadithIndex } from "./prayer-hadiths";
 
 /** True only inside the Capacitor native shell (the Android APK). */
 export function isNativeShell(): boolean {
@@ -44,6 +46,9 @@ export function isNativeShell(): boolean {
 const KIND_HADITH_MORNING = 1;
 const KIND_HADITH_EVENING = 2;
 const KIND_SEHRI_ALARM = 3;
+// Waqt prayer-hadith kinds: Fajr 4, Dhuhr 5, Asr 6, Maghrib 7, Isha 8.
+const KIND_WAQT = [4, 5, 6, 7, 8];
+const KIND_MAX = 8;
 
 function epochDayOf(dateISO: string): number {
   return Math.floor(Date.parse(`${dateISO}T00:00:00Z`) / 86400000);
@@ -58,6 +63,7 @@ function idFor(dateISO: string, kind: number): number {
 // alarm even on a locked phone.
 const HADITH_CHANNEL = "hadith-reminders";
 const ALARM_CHANNEL = "sehri-alarm";
+const WAQT_CHANNEL = "waqt-hadith";
 
 async function ensureChannels(): Promise<void> {
   try {
@@ -74,6 +80,14 @@ async function ensureChannels(): Promise<void> {
       name: "সেহরির অ্যালার্ম",
       description: "সেহরি শেষ হওয়ার আগে বাজানো অ্যালার্ম",
       importance: 5,
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: WAQT_CHANNEL,
+      name: "ওয়াক্তে নামাজের হাদিস",
+      description: "প্রতিটি নামাজের ওয়াক্ত শুরুতে নামাজের ফজিলতের হাদিস",
+      importance: 4,
       vibration: true,
       visibility: 1,
     });
@@ -164,12 +178,19 @@ export async function nativeShowNow(
 // ---------- the schedule sync ----------
 
 export interface NativeSyncDay extends DayLike {
-  timings: { fajr: string; maghrib: string };
+  timings: {
+    fajr: string;
+    dhuhr: string;
+    asr: string;
+    maghrib: string;
+    isha: string;
+  };
 }
 
 export interface NativeSyncInput {
   days: NativeSyncDay[];
   hadithEnabled: boolean;
+  waqtHadithEnabled: boolean;
   alarmEnabled: boolean;
   alarmMinutes: number;
   /** "ভোর ৫:১৯" style label for the alarm body, built by the caller. */
@@ -184,6 +205,14 @@ interface Wanted {
   body: string;
   atMs: number;
   channelId: string;
+}
+
+/** Dhaka-local wall time ("HH:MM" on dateISO) as epoch ms (Dhaka = UTC+6). */
+function localMs(dateISO: string, hhmm: string): number | null {
+  const m = (hhmm ?? "").match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const [y = 2027, mo = 1, d = 1] = dateISO.split("-").map(Number);
+  return Date.UTC(y, mo - 1, d, Number(m[1]) - 6, Number(m[2]), 0);
 }
 
 function buildWanted(input: NativeSyncInput): Wanted[] {
@@ -210,6 +239,28 @@ function buildWanted(input: NativeSyncInput): Wanted[] {
           });
         }
       }
+    }
+    if (input.waqtHadithEnabled) {
+      // One prayer hadith at the start of each of the five waqts, from
+      // the verified rotating set — a different hadith per waqt per day.
+      WAQTS.forEach((w, wi) => {
+        const kind = KIND_WAQT[wi];
+        if (kind === undefined) return;
+        const atMs = localMs(day.dateISO, day.timings[w.key]);
+        if (atMs === null || atMs <= now) return;
+        const h =
+          PRAYER_HADITHS[
+            prayerHadithIndex(epochDayOf(day.dateISO), wi, PRAYER_HADITHS.length)
+          ];
+        if (!h) return;
+        out.push({
+          id: idFor(day.dateISO, kind),
+          title: `${w.label} — নামাজের হাদিস`,
+          body: `${h.text}\n— ${h.source}`,
+          atMs,
+          channelId: WAQT_CHANNEL,
+        });
+      });
     }
     if (input.alarmEnabled && day.isRamadan) {
       const m = day.timings.fajr.match(/(\d{1,2}):(\d{2})/);
@@ -251,9 +302,9 @@ export async function syncNativeSchedule(
     const pending = await LocalNotifications.getPending();
 
     // Cancel anything the OS holds that we no longer want (our ids only —
-    // the id arithmetic marks them: epochDay*10 + 1..3).
+    // the id arithmetic marks them: epochDay*10 + 1..8).
     const toCancel = pending.notifications
-      .filter((p) => p.id % 10 >= 1 && p.id % 10 <= 3 && !wantedById.has(p.id))
+      .filter((p) => p.id % 10 >= 1 && p.id % 10 <= KIND_MAX && !wantedById.has(p.id))
       .map((p) => ({ id: p.id }));
     if (toCancel.length > 0) {
       await LocalNotifications.cancel({ notifications: toCancel });
@@ -262,7 +313,7 @@ export async function syncNativeSchedule(
     // Re-scheduling every wanted entry is simplest and always consistent:
     // the plugin replaces a pending notification scheduled again with the
     // same id, so changed times/text refresh in place. The set is at most
-    // ~90 entries (30 days × 3).
+    // ~240 entries (30 days × 8).
     const toSchedule: LocalNotificationSchema[] = wanted.map((w) => ({
       id: w.id,
       title: w.title,
@@ -285,7 +336,7 @@ export async function cancelAllNative(): Promise<void> {
   try {
     const pending = await LocalNotifications.getPending();
     const ours = pending.notifications
-      .filter((p) => p.id % 10 >= 1 && p.id % 10 <= 3)
+      .filter((p) => p.id % 10 >= 1 && p.id % 10 <= KIND_MAX)
       .map((p) => ({ id: p.id }));
     if (ours.length > 0) {
       await LocalNotifications.cancel({ notifications: ours });

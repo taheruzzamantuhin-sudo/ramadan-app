@@ -1,17 +1,16 @@
-// আল-কুরআন ডেটা লোডার + অডিও স্ট্রিম/ডাউনলোড ম্যানেজার।
+// আল-কুরআন ডেটা লোডার + অডিও ম্যানেজার।
 //
 // ডেটা (আলাদাভাবে তৈরি):
 //   ./quran/meta.ts          — SURAHS / PARAS মেটাডেটা
 //   ./quran/surah-<n>.json   — প্রতি সূরার আরবি + বাংলা অর্থ + উচ্চারণ
 //
-// অডিও: প্রতি আয়াতের MP3 (মিশারি আল-আফাসি তিলাওয়াত) Islamic Network
-// CDN থেকে স্ট্রিম হয়। নেটিভ অ্যাপে (Capacitor) পুরো সূরা ডাউনলোড করে
-// অফলাইনে শোনা যায় — ফাইল থাকে Directory.Data/quran-audio/<surah>/<g>.mp3
-// পথে, আর কোন সূরা কতটুকু ডাউনলোড হয়েছে তার হিসাব localStorage-এর
-// manifest-এ থাকে। ওয়েবে ডাউনলোড ফাংশনগুলো নিরাপদ no-op।
+// অডিও: প্রতি আয়াতের তিলাওয়াত (মিশারি আল-আফাসি) অ্যাপের ভেতরেই বান্ডল
+// করা থাকে — বিল্ডের সময় scripts/bundle-quran-audio.mjs CDN-এর 64 kbps
+// MP3 নামিয়ে Opus mono 12 kbps-এ ট্রান্সকোড করে বান্ডলে
+// quran-audio/<g>.opus (মোট ৬২৩৬ ফাইল, ~১৬৪ MB) হিসেবে বসায়। তাই সূরা
+// অনুযায়ী শুনলে ইনস্টলের পর থেকেই কোনো ডাউনলোড ছাড়া অফলাইনে চলে।
+// পারা অনুযায়ী শোনা আগের মতোই Islamic Network CDN থেকে স্ট্রিম হয়।
 
-import { Capacitor } from "@capacitor/core";
-import { Directory, Filesystem } from "@capacitor/filesystem";
 import { PARAS, SURAHS } from "./quran/meta";
 import { SURAH_LOADERS } from "./quran/loaders";
 
@@ -56,14 +55,6 @@ export interface SurahData {
 export interface ParaAyah extends QuranAyah {
   surah: number;
 }
-
-export interface DownloadInfo {
-  total: number;
-  done: number;
-  complete: boolean;
-}
-
-export type DownloadManifest = Record<number, DownloadInfo>;
 
 export { PARAS, SURAHS };
 
@@ -113,158 +104,14 @@ export function audioUrl(g: number): string {
   return `https://cdn.islamic.network/quran/audio/64/ar.alafasy/${g}.mp3`;
 }
 
-// ---------- offline downloads (native only) ----------
-
-const MANIFEST_KEY = "amolkhata.quran.downloads";
-const AUDIO_DIR = "quran-audio";
-
-/** Capacitor নেটিভ শেলের (Android অ্যাপ) ভেতরে চলছে কিনা। */
-export function isNative(): boolean {
-  try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    return false;
-  }
-}
-
-function readManifest(): DownloadManifest {
-  try {
-    const raw = localStorage.getItem(MANIFEST_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as DownloadManifest;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeManifest(manifest: DownloadManifest): void {
-  try {
-    localStorage.setItem(MANIFEST_KEY, JSON.stringify(manifest));
-  } catch {
-    // storage unavailable / full — download state just won't persist
-  }
-}
-
-/** এক সূরার ডাউনলোড অবস্থা (manifest থেকে); কিছু না থাকলে null। */
-export function downloadInfo(surah: number): DownloadInfo | null {
-  return readManifest()[surah] ?? null;
-}
-
-/** পুরোপুরি ডাউনলোড হয়ে থাকা সূরাগুলোর সেট। */
-export function downloadedSurahs(): Set<number> {
-  const out = new Set<number>();
-  const manifest = readManifest();
-  for (const key of Object.keys(manifest)) {
-    const info = manifest[Number(key)];
-    if (info?.complete) out.add(Number(key));
-  }
-  return out;
-}
-
-function audioPath(surah: number, g: number): string {
-  return `${AUDIO_DIR}/${surah}/${g}.mp3`;
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await Filesystem.stat({ path, directory: Directory.Data });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
- * একটি সূরার সব আয়াতের MP3 ডিভাইসে ডাউনলোড করে। আগেরবার আংশিক
- * ডাউনলোড হয়ে থাকলে যেসব ফাইল ইতিমধ্যে আছে সেগুলো skip করে বাকিগুলো
- * আনে (resume)। অগ্রগতি onProgress(done, total) দিয়ে জানানো হয়।
- * সফলভাবে সব নামলে true, নইলে false। ওয়েবে (নেটিভ নয়) false ফেরত
- * দিয়ে no-op থাকে।
+ * গ্লোবাল আয়াত নম্বর থেকে অ্যাপে বান্ডল করা লোকাল অডিওর পথ
+ * (Opus mono 12 kbps — বিল্ডের সময় বান্ডলে বসানো, দেখুন
+ * scripts/bundle-quran-audio.mjs)। আপেক্ষিক পথ: ওয়েব বান্ডলের রুট
+ * থেকে quran-audio/ ফোল্ডারে থাকে, Capacitor শেল ও ওয়েব দুটোতেই
+ * একইভাবে পাওয়া যায়। ইন্টারনেট ছাড়াই চলে।
  */
-export async function downloadSurah(
-  surah: number,
-  onProgress?: (done: number, total: number) => void,
-): Promise<boolean> {
-  if (!isNative()) return false;
-  let data: SurahData;
-  try {
-    data = await loadSurah(surah);
-  } catch {
-    return false;
-  }
-  const total = data.ayahs.length;
-  let done = 0;
-  let failed = false;
-
-  const save = (complete: boolean) => {
-    const manifest = readManifest();
-    manifest[surah] = { total, done, complete };
-    writeManifest(manifest);
-  };
-  save(false);
-  onProgress?.(done, total);
-
-  for (const ayah of data.ayahs) {
-    const path = audioPath(surah, ayah.g);
-    if (await fileExists(path)) {
-      done++;
-    } else {
-      try {
-        await Filesystem.downloadFile({
-          url: audioUrl(ayah.g),
-          path,
-          directory: Directory.Data,
-        });
-        done++;
-      } catch {
-        failed = true;
-      }
-    }
-    save(!failed && done === total);
-    onProgress?.(done, total);
-  }
-  const complete = !failed && done === total;
-  save(complete);
-  return complete;
-}
-
-/**
- * ডাউনলোড করা আয়াতের লোকাল ফাইল URL (ওয়েবভিউতে চালানোর উপযোগী)।
- * ফাইল না থাকলে বা ওয়েবে হলে null।
- */
-export async function getLocalUri(
-  surah: number,
-  g: number,
-): Promise<string | null> {
-  if (!isNative()) return null;
-  const path = audioPath(surah, g);
-  if (!(await fileExists(path))) return null;
-  try {
-    const { uri } = await Filesystem.getUri({
-      path,
-      directory: Directory.Data,
-    });
-    return Capacitor.convertFileSrc(uri);
-  } catch {
-    return null;
-  }
-}
-
-/** এক সূরার ডাউনলোড করা সব অডিও মুছে manifest আপডেট করে। */
-export async function deleteSurahDownload(surah: number): Promise<boolean> {
-  if (!isNative()) return false;
-  try {
-    await Filesystem.rmdir({
-      path: `${AUDIO_DIR}/${surah}`,
-      directory: Directory.Data,
-      recursive: true,
-    });
-  } catch {
-    // folder may not exist — still clear the manifest entry below
-  }
-  const manifest = readManifest();
-  delete manifest[surah];
-  writeManifest(manifest);
-  return true;
+export function bundledAudioUrl(g: number): string {
+  return `quran-audio/${g}.opus`;
 }

@@ -1454,10 +1454,12 @@ function HisabTab() {
 // ---------- notifications card (permission + hadith schedule) ----------
 
 function NotificationCard({
-  hadithNotif, onToggleHadithNotif,
+  hadithNotif, onToggleHadithNotif, waqtHadith, onToggleWaqtHadith,
 }: {
   hadithNotif: boolean;
   onToggleHadithNotif: (on: boolean) => void;
+  waqtHadith: boolean;
+  onToggleWaqtHadith: (on: boolean) => void;
 }) {
   const native = isNativeShell();
   const [perm, setPerm] = useState(() => notificationPermission());
@@ -1555,6 +1557,19 @@ function NotificationCard({
           />
           <span className="font-medium">প্রতিদিন দুইবার হাদিসের নোটিফিকেশন</span>
         </label>
+        <label className="mt-3 flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={waqtHadith}
+            onChange={(e) => onToggleWaqtHadith(e.target.checked)}
+            className="h-6 w-6 shrink-0 accent-[#0b3d2e]"
+            aria-label="ওয়াক্তে নামাজের হাদিস"
+          />
+          <span className="font-medium">ওয়াক্তে নামাজের হাদিস</span>
+        </label>
+        <p className="mt-1 pl-9 text-xs leading-relaxed text-[var(--dim)]">
+          প্রতিটি ওয়াক্ত শুরুতে (ফজর, যোহর, আসর, মাগরিব, এশা) নামাজের ফজিলতের একটি সহীহ হাদিস আসবে — আপনার জেলার সময় অনুযায়ী।
+        </p>
       </Card>
     );
   }
@@ -1608,13 +1623,15 @@ function NotificationCard({
 // ---------- settings + admin tab ----------
 
 function SettingsTab({
-  user, token, onLogout, hadithNotif, onToggleHadithNotif,
+  user, token, onLogout, hadithNotif, onToggleHadithNotif, waqtHadith, onToggleWaqtHadith,
 }: {
   user: User;
   token: string;
   onLogout: () => void;
   hadithNotif: boolean;
   onToggleHadithNotif: (on: boolean) => void;
+  waqtHadith: boolean;
+  onToggleWaqtHadith: (on: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(user.name);
@@ -1689,7 +1706,12 @@ function SettingsTab({
         </div>
       </Card>
 
-      <NotificationCard hadithNotif={hadithNotif} onToggleHadithNotif={onToggleHadithNotif} />
+      <NotificationCard
+        hadithNotif={hadithNotif}
+        onToggleHadithNotif={onToggleHadithNotif}
+        waqtHadith={waqtHadith}
+        onToggleWaqtHadith={onToggleWaqtHadith}
+      />
 
       <Card>
         <SectionTitle>অফলাইনেও সব চলবে</SectionTitle>
@@ -1827,6 +1849,26 @@ export function App() {
     }
   }
 
+  // Prayer hadith at each waqt start (native shell only — scheduled with
+  // the OS via syncNativeSchedule). Device-local preference, same pattern
+  // as the twice-daily hadith toggle above; defaults to on.
+  const [waqtHadith, setWaqtHadith] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("ramadan-waqt-hadith") !== "off";
+    } catch {
+      return true;
+    }
+  });
+
+  function toggleWaqtHadith(on: boolean) {
+    setWaqtHadith(on);
+    try {
+      localStorage.setItem("ramadan-waqt-hadith", on ? "on" : "off");
+    } catch {
+      // preference just won't persist across restarts
+    }
+  }
+
   // keep the Dhaka date fresh
   useEffect(() => {
     const t = setInterval(() => setTodayISO(isoOf(dhakaNow())), 30000);
@@ -1895,6 +1937,37 @@ export function App() {
       readCache<ApiResponse<typeof api, "getDayTimings">>(`day|${districtEn}|${tomorrowISO}`),
   });
   usePersistCache(`day|${districtEn}|${tomorrowISO}`, tomorrowQ.data);
+  // Coming week's timings — the native notification sync pre-schedules
+  // the waqt prayer-hadith for at least the next 7 days, so it needs more
+  // days than the home screen's today/tomorrow. Native shell only (the
+  // web build never schedules with the OS); each fetched day is written
+  // to the same per-day cache the today/tomorrow queries use, so a later
+  // offline open can still seed from it.
+  const weekQ = useQuery({
+    queryKey: ["week", districtEn, todayISO],
+    queryFn: async () => {
+      const out: DayInfo[] = [];
+      for (let i = 0; i < 7; i++) {
+        const iso = addDaysISO(todayISO, i);
+        const r = await api.getDayTimings({ districtEn, dateISO: iso, force: false });
+        writeCache(`day|${districtEn}|${iso}`, r);
+        out.push(r.day);
+      }
+      return out;
+    },
+    enabled: !!user && isNativeShell(),
+    staleTime: 6 * 3600 * 1000,
+    initialData: () => {
+      const out: DayInfo[] = [];
+      for (let i = 0; i < 7; i++) {
+        const c = readCache<ApiResponse<typeof api, "getDayTimings">>(
+          `day|${districtEn}|${addDaysISO(todayISO, i)}`,
+        );
+        if (c?.day) out.push(c.day);
+      }
+      return out.length > 0 ? out : undefined;
+    },
+  });
   const today = todayQ.data?.day;
   const hijriYear = useMemo(() => {
     if (!today) return 1448;
@@ -2004,11 +2077,12 @@ export function App() {
   // whenever the district, alarm setting or hadith toggle changes. In a
   // browser this does nothing — the timers above are the mechanism there.
   const calendarDays = calQ.data?.days;
+  const weekDays = weekQ.data;
   useEffect(() => {
     if (!isNativeShell() || !user || !today) return;
     const days: DayInfo[] = [];
     const seen = new Set<string>();
-    for (const d of [today, tomorrow, ...(calendarDays ?? [])]) {
+    for (const d of [today, tomorrow, ...(weekDays ?? []), ...(calendarDays ?? [])]) {
       if (d && !seen.has(d.dateISO)) {
         seen.add(d.dateISO);
         days.push(d);
@@ -2017,12 +2091,13 @@ export function App() {
     void syncNativeSchedule({
       days,
       hadithEnabled: hadithNotif,
+      waqtHadithEnabled: waqtHadith,
       alarmEnabled: user.alarmEnabled,
       alarmMinutes: user.alarmMinutes,
       fmtTime,
       bn,
     });
-  }, [user, today, tomorrow, calendarDays, hadithNotif]);
+  }, [user, today, tomorrow, weekDays, calendarDays, hadithNotif, waqtHadith]);
 
   function handleAuthed(a: AuthResult) {
     freshAuthAtRef.current = Date.now();
@@ -2137,6 +2212,8 @@ export function App() {
                 onLogout={handleLogout}
                 hadithNotif={hadithNotif}
                 onToggleHadithNotif={toggleHadithNotif}
+                waqtHadith={waqtHadith}
+                onToggleWaqtHadith={toggleWaqtHadith}
               />
             )}
           </main>
