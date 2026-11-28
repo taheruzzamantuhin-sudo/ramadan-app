@@ -1,0 +1,6 @@
+CREATE TABLE prayer_marks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  date_iso TEXT NOT NULL,
+  waqt TEXT NOT NULL
+);

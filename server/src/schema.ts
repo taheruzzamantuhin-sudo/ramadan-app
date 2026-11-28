@@ -66,6 +66,15 @@ export const tasbihCounts = sqliteTable("tasbih_counts", {
   count: integer("count").notNull().default(0),
 });
 
+export const prayerMarks = sqliteTable("prayer_marks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  dateISO: text("date_iso").notNull(),
+  waqt: text("waqt", { enum: ["fajr", "dhuhr", "asr", "maghrib", "isha"] }).notNull(),
+});
+
 // Small key/value store for app-wide settings that must update without a
 // rebuild — currently the Islamic Foundation Fitra rates (key "fitra_rates",
 // JSON payload) and the last automatic rate-check time ("fitra_last_check").

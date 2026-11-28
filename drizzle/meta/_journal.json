@@ -22,6 +22,13 @@
       "when": 1795706288412,
       "tag": "0003_app_settings_table",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795867200000,
+      "tag": "0004_prayer_marks_table",
+      "breakpoints": true
     }
   ]
 }

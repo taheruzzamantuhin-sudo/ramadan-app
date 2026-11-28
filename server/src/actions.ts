@@ -526,7 +526,7 @@ export const Actions = {
   }),
 
   getMyState: defineAction({
-    description: "Returns the logged-in user's Roza marks, Quran khatam check-offs and Tasbih totals for one Hijri year.",
+    description: "Returns the logged-in user's Roza marks, Quran khatam check-offs and Tasbih totals for one Hijri year, plus the daily prayer-tracker marks (dateISO -> waqts prayed) for the last 92 days.",
     request: z.object({
       token: z.string().min(1).max(200),
       hijriYear: z.number().int().min(1400).max(1600),
@@ -535,6 +535,12 @@ export const Actions = {
       roza: z.array(z.object({ day: z.number(), status: z.enum(["kept", "qaza"]) })),
       khatamDays: z.array(z.number()),
       tasbih: z.array(z.object({ dhikr: z.string(), count: z.number() })),
+      prayers: z.array(
+        z.object({
+          dateISO: z.string(),
+          waqts: z.array(z.enum(["fajr", "dhuhr", "asr", "maghrib", "isha"])),
+        }),
+      ),
     }),
     async handler(ctx, args) {
       const user = await requireUser(ctx, args.token);
@@ -561,11 +567,77 @@ export const Actions = {
         .select()
         .from(schema.tasbihCounts)
         .where(eq(schema.tasbihCounts.userId, user.id));
+      // Prayer tracker: only the recent window the client displays
+      // (weekly strip + current month + streak) is returned.
+      const dhaka = new Date(Date.now() + 6 * 3600 * 1000);
+      const cutoffDt = new Date(Date.UTC(dhaka.getUTCFullYear(), dhaka.getUTCMonth(), dhaka.getUTCDate() - 92));
+      const cutoff = `${cutoffDt.getUTCFullYear()}-${String(cutoffDt.getUTCMonth() + 1).padStart(2, "0")}-${String(cutoffDt.getUTCDate()).padStart(2, "0")}`;
+      const prayerRows = await db
+        .select()
+        .from(schema.prayerMarks)
+        .where(eq(schema.prayerMarks.userId, user.id));
+      const waqtOrder = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
+      const byDate = new Map<string, Set<(typeof waqtOrder)[number]>>();
+      for (const r of prayerRows) {
+        if (r.dateISO < cutoff) continue;
+        const s = byDate.get(r.dateISO) ?? new Set<(typeof waqtOrder)[number]>();
+        s.add(r.waqt);
+        byDate.set(r.dateISO, s);
+      }
+      const prayers = [...byDate.entries()]
+        .map(([dateISO, s]) => ({ dateISO, waqts: waqtOrder.filter((w) => s.has(w)) }))
+        .filter((p) => p.waqts.length > 0)
+        .sort((a, b) => (a.dateISO < b.dateISO ? -1 : 1));
       return {
         roza: roza.map((r) => ({ day: r.day, status: r.status })),
         khatamDays: khatam.filter((k) => k.done === 1).map((k) => k.day),
         tasbih: tasbih.map((t) => ({ dhikr: t.dhikr, count: t.count })),
+        prayers,
       };
+    },
+  }),
+
+  setPrayerMark: defineAction({
+    description: "Ticks or unticks one waqt of one Gregorian date in the logged-in user's daily prayer tracker.",
+    request: z.object({
+      token: z.string().min(1).max(200),
+      dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      waqt: z.enum(["fajr", "dhuhr", "asr", "maghrib", "isha"]),
+      done: z.boolean(),
+    }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const user = await requireUser(ctx, args.token);
+      const db = ctx.db<typeof schema>();
+      // Only today and the past ~400 days can be marked — the tracker is
+      // a habit log, not a future planner.
+      const dhaka = new Date(Date.now() + 6 * 3600 * 1000);
+      const isoOf = (dt: Date) =>
+        `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+      const todayISO = isoOf(dhaka);
+      const keepFrom = isoOf(new Date(Date.UTC(dhaka.getUTCFullYear(), dhaka.getUTCMonth(), dhaka.getUTCDate() - 400)));
+      if (args.dateISO > todayISO || args.dateISO < keepFrom) {
+        throw new Error("এই তারিখের জন্য নামাজ চিহ্নিত করা যাবে না");
+      }
+      const cond = and(
+        eq(schema.prayerMarks.userId, user.id),
+        eq(schema.prayerMarks.dateISO, args.dateISO),
+        eq(schema.prayerMarks.waqt, args.waqt),
+      );
+      if (!args.done) {
+        await db.delete(schema.prayerMarks).where(cond);
+      } else {
+        const existing = await db.select().from(schema.prayerMarks).where(cond).limit(1);
+        if (!existing[0]) {
+          await db.insert(schema.prayerMarks).values({
+            userId: user.id,
+            dateISO: args.dateISO,
+            waqt: args.waqt,
+          });
+        }
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
     },
   }),
 

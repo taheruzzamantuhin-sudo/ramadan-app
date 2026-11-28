@@ -55,6 +55,18 @@ setFailureNoticeText((error) => {
 type User = ApiResponse<typeof api, "me">["user"] & object;
 type DayInfo = ApiResponse<typeof api, "getDayTimings">["day"];
 
+// ---------- prayer tracker shared bits ----------
+type WaqtKey = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
+const WAQT_ORDER: WaqtKey[] = ["fajr", "dhuhr", "asr", "maghrib", "isha"];
+const WAQT_DEFS: { key: WaqtKey; name: string }[] = [
+  { key: "fajr", name: "ফজর" },
+  { key: "dhuhr", name: "যোহর" },
+  { key: "asr", name: "আসর" },
+  { key: "maghrib", name: "মাগরিব" },
+  { key: "isha", name: "ইশা" },
+];
+const WEEKDAY_SHORT_BN = ["রবি", "সোম", "মঙ্গল", "বুধ", "বৃহ", "শুক্র", "শনি"];
+
 // ---------- Bengali helpers ----------
 
 const BN_DIGITS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
@@ -229,6 +241,7 @@ export interface AuthStateSeed {
   roza: { day: number; status: "kept" | "qaza" }[];
   khatamDays: number[];
   tasbih: { dhikr: string; count: number }[];
+  prayers: { dateISO: string; waqts: WaqtKey[] }[];
 }
 
 type MeUser = NonNullable<ApiResponse<typeof api, "me">["user"]>;
@@ -480,12 +493,233 @@ function TabBar({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
   );
 }
 
+// ---------- prayer tracker card (home) ----------
+
+type PrayerState = ApiResponse<typeof api, "getMyState">;
+interface PendingPrayerMark {
+  dateISO: string;
+  waqt: WaqtKey;
+  done: boolean;
+}
+
+function PrayerTrackerCard({
+  token, hijriYear, today,
+}: {
+  token: string;
+  hijriYear: number;
+  today: DayInfo;
+}) {
+  const queryClient = useQueryClient();
+  const stateQ = useQuery({
+    queryKey: ["mystate", token, hijriYear],
+    queryFn: () => api.getMyState({ token, hijriYear }),
+    // Seeded from the login/me response right after auth — no instant refetch.
+    staleTime: 60_000,
+    initialData: () =>
+      readCache<PrayerState>(`mystate|${token}|${hijriYear}`),
+  });
+  usePersistCache(`mystate|${token}|${hijriYear}`, stateQ.data);
+
+  // Marks tapped while offline (or while a save is in flight) wait in
+  // this on-device queue and are sent whenever the connection allows —
+  // a tick is never lost just because the network was down at tap time.
+  const pendingKey = `prayer-pending:${token}`;
+  const readPending = (): PendingPrayerMark[] => {
+    try {
+      const raw = localStorage.getItem(pendingKey);
+      const arr = raw ? (JSON.parse(raw) as PendingPrayerMark[]) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  };
+  const writePending = (p: PendingPrayerMark[]) => {
+    try {
+      localStorage.setItem(pendingKey, JSON.stringify(p));
+    } catch {
+      // storage unavailable — the in-memory state still shows the tick
+    }
+  };
+  const [tick, setTick] = useState(0);
+
+  const prayerMap = useMemo(() => {
+    const m = new Map<string, Set<WaqtKey>>();
+    for (const p of stateQ.data?.prayers ?? []) m.set(p.dateISO, new Set(p.waqts));
+    // Not-yet-synced marks override the last server snapshot.
+    for (const pm of readPending()) {
+      const s = m.get(pm.dateISO) ?? new Set<WaqtKey>();
+      if (pm.done) s.add(pm.waqt);
+      else s.delete(pm.waqt);
+      m.set(pm.dateISO, s);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateQ.data, tick]);
+
+  const flushingRef = useRef(false);
+  async function flushPending() {
+    if (flushingRef.current) return;
+    let pending = readPending();
+    if (pending.length === 0) return;
+    flushingRef.current = true;
+    try {
+      while (pending.length > 0) {
+        const head = pending[0]!;
+        try {
+          await api.setPrayerMark({ token, dateISO: head.dateISO, waqt: head.waqt, done: head.done });
+        } catch {
+          return; // still offline — the queue stays for the next try
+        }
+        pending = pending.slice(1);
+        writePending(pending);
+      }
+      queryClient.invalidateQueries({ queryKey: ["mystate", token, hijriYear] });
+    } finally {
+      flushingRef.current = false;
+    }
+  }
+  // Sync on mount and whenever a fresh state lands (proof the
+  // connection is back).
+  useEffect(() => {
+    void flushPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateQ.dataUpdatedAt]);
+
+  function toggle(waqt: WaqtKey) {
+    const dateISO = today.dateISO;
+    const done = !(prayerMap.get(dateISO)?.has(waqt) ?? false);
+    queryClient.setQueryData<PrayerState>(["mystate", token, hijriYear], (old) => {
+      if (!old) return old;
+      const map = new Map<string, Set<WaqtKey>>();
+      for (const p of old.prayers ?? []) map.set(p.dateISO, new Set(p.waqts));
+      const s = map.get(dateISO) ?? new Set<WaqtKey>();
+      if (done) s.add(waqt);
+      else s.delete(waqt);
+      map.set(dateISO, s);
+      const prayers = [...map.entries()]
+        .map(([d, set]) => ({ dateISO: d, waqts: WAQT_ORDER.filter((w) => set.has(w)) }))
+        .filter((p) => p.waqts.length > 0)
+        .sort((a, b) => (a.dateISO < b.dateISO ? -1 : 1));
+      return { ...old, prayers };
+    });
+    const rest = readPending().filter((p) => !(p.dateISO === dateISO && p.waqt === waqt));
+    rest.push({ dateISO, waqt, done });
+    writePending(rest);
+    setTick((t) => t + 1);
+    void flushPending();
+  }
+
+  const todaySet = prayerMap.get(today.dateISO) ?? new Set<WaqtKey>();
+  const times: Record<WaqtKey, string> = {
+    fajr: today.timings.fajr,
+    dhuhr: today.timings.dhuhr,
+    asr: today.timings.asr,
+    maghrib: today.timings.maghrib,
+    isha: today.timings.isha,
+  };
+  // Last 7 days, oldest first.
+  const week = Array.from({ length: 7 }, (_, i) => addDaysISO(today.dateISO, i - 6));
+  // Current Gregorian month, elapsed days only.
+  const [yy = "2026", mm = "01"] = today.dateISO.split("-");
+  const elapsed = Number(today.dateISO.slice(8, 10));
+  let monthPrayed = 0;
+  for (let d = 1; d <= elapsed; d++) {
+    monthPrayed += prayerMap.get(`${yy}-${mm}-${pad2(d)}`)?.size ?? 0;
+  }
+  const monthTotal = elapsed * 5;
+  const monthPct = monthTotal > 0 ? Math.round((monthPrayed / monthTotal) * 100) : 0;
+  // Streak of full (5/5) days, ending today — or yesterday while today
+  // is still in progress.
+  let streak = 0;
+  {
+    let cursor = todaySet.size === 5 ? today.dateISO : addDaysISO(today.dateISO, -1);
+    while ((prayerMap.get(cursor)?.size ?? 0) === 5) {
+      streak++;
+      cursor = addDaysISO(cursor, -1);
+    }
+  }
+
+  return (
+    <Card>
+      <SectionTitle>নামাজ ট্র্যাকার</SectionTitle>
+      <p className="mt-1 text-sm text-[var(--dim)]">
+        ওয়াক্তের নামাজ পড়া হলেই টিক দিন — হিসাব আপনার অ্যাকাউন্টে থেকে যাবে। ইন্টারনেট না থাকলেও টিক দেওয়া যাবে, সংযোগ এলেই নিজে থেকে সিঙ্ক হয়ে যাবে।
+      </p>
+      <div className="mt-3 grid grid-cols-5 gap-1.5">
+        {WAQT_DEFS.map((w) => {
+          const on = todaySet.has(w.key);
+          return (
+            <button
+              key={w.key}
+              type="button"
+              onClick={() => toggle(w.key)}
+              aria-pressed={on}
+              aria-label={`${w.name} — ${on ? "পড়েছি" : "পড়া হয়নি"}`}
+              className={`rounded-lg border px-1 py-2 text-center ${
+                on
+                  ? "border-transparent bg-[var(--accent)] font-bold text-white"
+                  : "border-[var(--border)] bg-[var(--surface)]"
+              }`}
+            >
+              <span className="block text-sm leading-tight">{w.name}</span>
+              <span className={`block text-[0.7rem] leading-tight tabular-nums ${on ? "text-white/85" : "text-[var(--dim)]"}`}>
+                {fmtTime(times[w.key])}
+              </span>
+              <span className="block text-sm leading-tight" aria-hidden="true">{on ? "✓" : "○"}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-sm font-medium">আজ: {bn(todaySet.size)}/৫ ওয়াক্ত পড়া হয়েছে</p>
+
+      <div className="mt-3 border-t border-[var(--border)] pt-3">
+        <p className="text-sm font-semibold text-[var(--accent)]">গত ৭ দিন</p>
+        <div className="mt-2 grid grid-cols-7 gap-1">
+          {week.map((iso) => {
+            const s = prayerMap.get(iso);
+            const count = s?.size ?? 0;
+            const dt = new Date(`${iso}T00:00:00Z`);
+            const isTodayCol = iso === today.dateISO;
+            return (
+              <div
+                key={iso}
+                className={`rounded-lg px-0.5 py-1.5 text-center ${isTodayCol ? "bg-[var(--sage)] ring-1 ring-[var(--gold)]" : ""}`}
+              >
+                <span className="block text-[0.7rem] font-medium leading-tight">{WEEKDAY_SHORT_BN[dt.getUTCDay()]}</span>
+                <span className="block text-[0.7rem] leading-tight text-[var(--dim)]">{bn(dt.getUTCDate())}</span>
+                <span className="mt-1 flex items-center justify-center gap-[2px]" aria-hidden="true">
+                  {WAQT_ORDER.map((w) => (
+                    <span key={w} className={`h-1.5 w-1.5 rounded-full ${s?.has(w) ? "bg-[var(--gold)]" : "bg-[var(--border)]"}`} />
+                  ))}
+                </span>
+                <span className="block text-[0.7rem] leading-tight">{bn(count)}/৫</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 border-t border-[var(--border)] pt-3 text-sm leading-relaxed">
+        <p>
+          এই মাসে এখন পর্যন্ত: <b>{bn(monthPrayed)} / {bn(monthTotal)}</b> ওয়াক্ত ({bn(monthPct)}%)
+        </p>
+        {streak > 0 && (
+          <p className="mt-0.5">
+            পাঁচ ওয়াক্ত পূর্ণ পড়ার ধারাবাহিকতা: <b>{bn(streak)} দিন</b> — আলহামদুলিল্লাহ, চালিয়ে যান!
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ---------- home tab ----------
 
 function HomeTab({
-  user, today, tomorrow, calendar, hijriYear, goDua, onRefresh, refreshing,
+  user, token, today, tomorrow, calendar, hijriYear, goDua, onRefresh, refreshing,
 }: {
   user: User;
+  token: string;
   today?: DayInfo;
   tomorrow?: DayInfo;
   calendar?: DayInfo[];
@@ -628,6 +862,8 @@ function HomeTab({
           সময় ইসলামিক ফাউন্ডেশনের পদ্ধতি (ফজর ১৮°) ও হানাফি আসর অনুযায়ী হিসাব করা। চাঁদ দেখার ভিত্তিতে ইসলামিক ফাউন্ডেশনের চূড়ান্ত ঘোষণাই প্রযোজ্য।
         </p>
       </Card>
+
+      <PrayerTrackerCard token={token} hijriYear={hijriYear} today={today} />
 
       <Card className="border-l-4 border-l-[var(--gold)]">
         <SectionTitle>আজকের হাদিস — {hadithTopic(hadithIdx)}</SectionTitle>
@@ -2216,6 +2452,7 @@ export function App() {
             {tab === "home" && (
               <HomeTab
                 user={user}
+                token={token}
                 today={today}
                 tomorrow={tomorrowQ.data?.day}
                 calendar={calQ.data?.days}
